@@ -1,0 +1,11 @@
+.vs/
+.deps/
+build/
+build_x64/
+out/
+vendor/
+cmake/.CMakeBuildNumber
+*.user
+*.suo
+*.mkv
+*.mp4
