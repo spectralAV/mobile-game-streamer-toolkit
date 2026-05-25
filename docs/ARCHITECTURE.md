@@ -15,6 +15,8 @@ Android device
   -> obs_source_output_video()
   -> obs_source_output_audio()
   -> OBS scene/output encoder
+  -> optional throttled localhost BMP bridge
+  -> MLBB CoPilot CV/reasoning pipeline
 ```
 
 ## Read-only mode
@@ -58,3 +60,4 @@ The OBS source should expose bit rate and buffer as first-class fields, with cod
 6. Audio packet reader and FFmpeg decode/resampling to OBS audio frames. Done to 48 kHz stereo S16.
 7. Reconnect handling and device switching. Basic restart on settings update; richer auto-reconnect remains future work.
 8. Installer/package layout for OBS Studio on Windows. Done for per-user OBS plugin install.
+9. Optional local MLBB CoPilot frame bridge. Done as a throttled decoded-frame HTTP publisher; crop-specific transport and shared memory remain future optimizations.

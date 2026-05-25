@@ -352,6 +352,141 @@ void append_if_value(std::vector<std::string> &args, const char *key,
   }
 }
 
+void write_le16(std::vector<uint8_t> &bytes, size_t offset, uint16_t value)
+{
+  bytes[offset] = static_cast<uint8_t>(value);
+  bytes[offset + 1] = static_cast<uint8_t>(value >> 8);
+}
+
+void write_le32(std::vector<uint8_t> &bytes, size_t offset, uint32_t value)
+{
+  bytes[offset] = static_cast<uint8_t>(value);
+  bytes[offset + 1] = static_cast<uint8_t>(value >> 8);
+  bytes[offset + 2] = static_cast<uint8_t>(value >> 16);
+  bytes[offset + 3] = static_cast<uint8_t>(value >> 24);
+}
+
+uint8_t clamp_color(int value)
+{
+  return static_cast<uint8_t>(std::clamp(value, 0, 255));
+}
+
+std::vector<uint8_t> make_bridge_bmp(const AVFrame *frame, int max_width)
+{
+  const int source_width = frame->width;
+  const int source_height = frame->height;
+  const int target_width =
+      std::min(source_width, std::max(320, max_width));
+  const int target_height =
+      std::max(1, source_height * target_width / source_width);
+  const size_t pixel_bytes =
+      static_cast<size_t>(target_width) * target_height * 4;
+  std::vector<uint8_t> bmp(54 + pixel_bytes, 0);
+
+  bmp[0] = 'B';
+  bmp[1] = 'M';
+  write_le32(bmp, 2, static_cast<uint32_t>(bmp.size()));
+  write_le32(bmp, 10, 54);
+  write_le32(bmp, 14, 40);
+  write_le32(bmp, 18, static_cast<uint32_t>(target_width));
+  write_le32(bmp, 22, static_cast<uint32_t>(-target_height));
+  write_le16(bmp, 26, 1);
+  write_le16(bmp, 28, 32);
+  write_le32(bmp, 34, static_cast<uint32_t>(pixel_bytes));
+
+  for (int y = 0; y < target_height; ++y) {
+    const int source_y = y * source_height / target_height;
+    for (int x = 0; x < target_width; ++x) {
+      const int source_x = x * source_width / target_width;
+      const int luma = frame->data[0][source_y * frame->linesize[0] + source_x];
+      int u = 128;
+      int v = 128;
+      if (frame->format == AV_PIX_FMT_NV12) {
+        const int chroma_offset =
+            (source_y / 2) * frame->linesize[1] + (source_x / 2) * 2;
+        u = frame->data[1][chroma_offset];
+        v = frame->data[1][chroma_offset + 1];
+      } else {
+        u = frame->data[1][(source_y / 2) * frame->linesize[1] +
+                           source_x / 2];
+        v = frame->data[2][(source_y / 2) * frame->linesize[2] +
+                           source_x / 2];
+      }
+
+      const int c = std::max(0, luma - 16);
+      const int d = u - 128;
+      const int e = v - 128;
+      const uint8_t r = clamp_color((298 * c + 409 * e + 128) >> 8);
+      const uint8_t g =
+          clamp_color((298 * c - 100 * d - 208 * e + 128) >> 8);
+      const uint8_t b = clamp_color((298 * c + 516 * d + 128) >> 8);
+      const size_t target =
+          54 + (static_cast<size_t>(y) * target_width + x) * 4;
+      bmp[target] = b;
+      bmp[target + 1] = g;
+      bmp[target + 2] = r;
+      bmp[target + 3] = 255;
+    }
+  }
+
+  return bmp;
+}
+
+bool send_all(SOCKET socket, const uint8_t *data, size_t length)
+{
+  size_t sent = 0;
+  while (sent < length) {
+    const int chunk = send(socket, reinterpret_cast<const char *>(data + sent),
+                           static_cast<int>(length - sent), 0);
+    if (chunk <= 0) {
+      return false;
+    }
+    sent += static_cast<size_t>(chunk);
+  }
+  return true;
+}
+
+bool post_bridge_bmp(const std::vector<uint8_t> &bmp)
+{
+  SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (socket == INVALID_SOCKET) {
+    return false;
+  }
+
+  DWORD timeout_ms = 250;
+  setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO,
+             reinterpret_cast<const char *>(&timeout_ms), sizeof(timeout_ms));
+  setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO,
+             reinterpret_cast<const char *>(&timeout_ms), sizeof(timeout_ms));
+
+  sockaddr_in address = {};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(8787);
+  inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+  if (connect(socket, reinterpret_cast<sockaddr *>(&address),
+              sizeof(address)) != 0) {
+    closesocket(socket);
+    return false;
+  }
+
+  std::ostringstream headers;
+  headers << "POST /api/capture/obs/frame HTTP/1.1\r\n"
+          << "Host: 127.0.0.1:8787\r\n"
+          << "Content-Type: image/bmp\r\n"
+          << "Content-Length: " << bmp.size() << "\r\n"
+          << "X-MLBB-Source: obs-scrcpy-plugin\r\n"
+          << "Connection: close\r\n\r\n";
+  const std::string request_headers = headers.str();
+  const bool ok =
+      send_all(socket,
+               reinterpret_cast<const uint8_t *>(request_headers.data()),
+               request_headers.size()) &&
+      send_all(socket, bmp.data(), bmp.size());
+  shutdown(socket, SD_BOTH);
+  closesocket(socket);
+  return ok;
+}
+
 } // namespace
 
 ScrcpyRuntime::ScrcpyRuntime(obs_source_t *source) : source_(source) {}
@@ -366,12 +501,17 @@ void ScrcpyRuntime::start(const ScrcpySettings &settings)
   stop();
   settings_ = settings;
   stopping_ = false;
+  last_bridge_frame_at_ = {};
+  if (settings_.cv_bridge_enabled) {
+    bridge_thread_ = std::thread(&ScrcpyRuntime::bridge_loop, this);
+  }
   worker_ = std::thread(&ScrcpyRuntime::run, this);
 }
 
 void ScrcpyRuntime::stop()
 {
   stopping_ = true;
+  bridge_condition_.notify_all();
   close_socket(video_socket_);
   close_socket(audio_socket_);
   close_socket(listen_socket_);
@@ -384,6 +524,9 @@ void ScrcpyRuntime::stop()
   }
   if (worker_.joinable()) {
     worker_.join();
+  }
+  if (bridge_thread_.joinable()) {
+    bridge_thread_.join();
   }
 
   cleanup();
@@ -777,6 +920,7 @@ void ScrcpyRuntime::video_loop()
                   static_cast<uint32_t>(frame->linesize[2]);
             }
             obs_source_output_video(source_, &obs_frame);
+            queue_bridge_frame(frame);
             width_ = obs_frame.width;
             height_ = obs_frame.height;
             if (!logged_first_frame) {
@@ -809,6 +953,51 @@ void ScrcpyRuntime::video_loop()
   av_packet_free(&packet);
   av_frame_free(&frame);
   avcodec_free_context(&ctx);
+}
+
+void ScrcpyRuntime::queue_bridge_frame(const AVFrame *frame)
+{
+  if (!settings_.cv_bridge_enabled) {
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const int fps = std::clamp(settings_.cv_bridge_fps, 1, 15);
+  const auto interval = std::chrono::milliseconds(1000 / fps);
+  if (last_bridge_frame_at_.time_since_epoch().count() &&
+      now - last_bridge_frame_at_ < interval) {
+    return;
+  }
+  last_bridge_frame_at_ = now;
+
+  std::vector<uint8_t> bmp =
+      make_bridge_bmp(frame, settings_.cv_bridge_max_width);
+  {
+    std::lock_guard<std::mutex> lock(bridge_mutex_);
+    bridge_pending_frame_ = std::move(bmp);
+  }
+  bridge_condition_.notify_one();
+}
+
+void ScrcpyRuntime::bridge_loop()
+{
+  while (!stopping_) {
+    std::vector<uint8_t> frame;
+    {
+      std::unique_lock<std::mutex> lock(bridge_mutex_);
+      bridge_condition_.wait(lock, [this] {
+        return stopping_ || !bridge_pending_frame_.empty();
+      });
+      if (stopping_) {
+        break;
+      }
+      frame.swap(bridge_pending_frame_);
+    }
+
+    if (!frame.empty()) {
+      post_bridge_bmp(frame);
+    }
+  }
 }
 
 void ScrcpyRuntime::audio_loop()

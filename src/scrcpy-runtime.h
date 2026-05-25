@@ -5,7 +5,10 @@
 #include <obs.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -34,6 +37,8 @@ private:
   bool accept_streams();
   void video_loop();
   void audio_loop();
+  void queue_bridge_frame(const struct AVFrame *frame);
+  void bridge_loop();
 
   obs_source_t *source_ = nullptr;
   ScrcpySettings settings_;
@@ -42,6 +47,12 @@ private:
   std::thread worker_;
   std::thread video_thread_;
   std::thread audio_thread_;
+  std::thread bridge_thread_;
+
+  std::mutex bridge_mutex_;
+  std::condition_variable bridge_condition_;
+  std::vector<uint8_t> bridge_pending_frame_;
+  std::chrono::steady_clock::time_point last_bridge_frame_at_{};
 
   uintptr_t server_process_ = 0;
   uintptr_t listen_socket_ = UINTPTR_MAX;

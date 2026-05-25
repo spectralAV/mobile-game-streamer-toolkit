@@ -407,6 +407,11 @@ ScrcpySettings read_settings(obs_data_t *data)
       obs_data_get_string_or_default(data, "audio_source", "output");
   settings.audio_codec_options =
       obs_data_get_string_or_default(data, "audio_codec_options", "");
+  settings.cv_bridge_enabled = obs_data_get_bool(data, "cv_bridge_enabled");
+  settings.cv_bridge_fps =
+      static_cast<int32_t>(obs_data_get_int(data, "cv_bridge_fps"));
+  settings.cv_bridge_max_width =
+      static_cast<int32_t>(obs_data_get_int(data, "cv_bridge_max_width"));
 
   return settings;
 }
@@ -430,6 +435,12 @@ void ScrcpySource::update(obs_data_t *settings)
     ScrcpySettings next_settings = read_settings(settings);
     std::string next_command =
         quote_for_log(build_scrcpy_probe_args(next_settings));
+    next_command += next_settings.cv_bridge_enabled
+                        ? " cv_bridge=on cv_bridge_fps=" +
+                              std::to_string(next_settings.cv_bridge_fps) +
+                              " cv_bridge_width=" +
+                              std::to_string(next_settings.cv_bridge_max_width)
+                        : " cv_bridge=off";
     changed = next_command != last_command_;
     settings_ = next_settings;
     last_command_ = next_command;
@@ -497,6 +508,9 @@ void scrcpy_source_get_defaults(obs_data_t *settings)
   obs_data_set_default_string(settings, "audio_bit_rate", "128K");
   obs_data_set_default_int(settings, "audio_buffer_ms", 50);
   obs_data_set_default_string(settings, "audio_source", "output");
+  obs_data_set_default_bool(settings, "cv_bridge_enabled", false);
+  obs_data_set_default_int(settings, "cv_bridge_fps", 5);
+  obs_data_set_default_int(settings, "cv_bridge_max_width", 960);
 }
 
 obs_properties_t *scrcpy_source_get_properties(void *data)
@@ -589,8 +603,17 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
                  obs_module_text("ScrcpySource.AudioSource"), audio_sources,
                  7);
   obs_properties_add_text(props, "audio_codec_options",
-                          obs_module_text("ScrcpySource.AudioCodecOptions"),
-                          OBS_TEXT_DEFAULT);
+                           obs_module_text("ScrcpySource.AudioCodecOptions"),
+                           OBS_TEXT_DEFAULT);
+
+  obs_properties_add_bool(props, "cv_bridge_enabled",
+                          obs_module_text("ScrcpySource.CvBridgeEnabled"));
+  obs_properties_add_int(props, "cv_bridge_fps",
+                         obs_module_text("ScrcpySource.CvBridgeFps"), 1, 15,
+                         1);
+  obs_properties_add_int(props, "cv_bridge_max_width",
+                         obs_module_text("ScrcpySource.CvBridgeMaxWidth"),
+                         320, 1920, 16);
 
   populate_encoder_list(video_encoder, {}, "video", settings.video_codec,
                         settings.video_encoder);

@@ -32,6 +32,8 @@ This repository contains a native OBS source plugin with a direct scrcpy 4.0 soc
 
 The plugin does not capture a scrcpy window. It runs the scrcpy server in read-only mode, receives encoded packets, decodes them with FFmpeg/libavcodec, then pushes raw frames and audio into OBS via `obs_source_output_video()` and `obs_source_output_audio()`.
 
+When `Send frames to MLBB CoPilot CV bridge` is enabled, the decoded video path also publishes throttled BMP frames to `http://127.0.0.1:8787/api/capture/obs/frame`. This allows CoPilot to analyze the same source OBS is rendering without opening a second scrcpy session.
+
 The project now follows the official `obs-plugintemplate` layout:
 
 - `buildspec.json` contains plugin metadata.
@@ -58,6 +60,7 @@ Run:
 5. Select a connected ADB device from the device dropdown, or leave `Auto USB device`.
 6. Use `Refresh devices` after plugging in/unplugging a phone.
 7. Pick the video/audio codec and quality settings.
+8. Enable `Send frames to MLBB CoPilot CV bridge` while the CoPilot backend is running to drive local CV from this native source.
 
 The source is always read-only. It does not expose device controls.
 

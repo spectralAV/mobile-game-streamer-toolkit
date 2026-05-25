@@ -27,8 +27,11 @@ struct ScrcpySettings {
   int32_t audio_buffer_ms = 50;
   std::string audio_source = "output";
   std::string audio_codec_options;
+
+  bool cv_bridge_enabled = false;
+  int32_t cv_bridge_fps = 5;
+  int32_t cv_bridge_max_width = 960;
 };
 
 constexpr const char *kDefaultScrcpyPath =
     "C:/Users/rokas/Downloads/scrcpy-win64-v4.0/scrcpy.exe";
-
