@@ -1,17 +1,32 @@
 #pragma once
 
 #include "scrcpy-settings.h"
+#include "scrcpy-low-latency.h"
 
 #include <obs.h>
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+
+struct AVFrame;
+
+class StreamClock {
+public:
+  void reset();
+  uint64_t map_pts_us(uint64_t pts_us);
+  bool has_baseline() const;
+
+private:
+  mutable std::mutex mutex_;
+  uint64_t first_pts_us_ = 0;
+  uint64_t obs_start_ns_ = 0;
+  bool have_baseline_ = false;
+};
 
 class ScrcpyRuntime {
 public:
@@ -29,6 +44,9 @@ public:
 
 private:
   void run();
+  bool start_session();
+  void stop_session();
+  bool wait_before_retry(std::chrono::milliseconds delay);
   void cleanup();
   bool prepare_server_socket();
   bool run_adb_checked(const std::vector<std::string> &args,
@@ -37,13 +55,14 @@ private:
   bool accept_streams();
   void video_loop();
   void audio_loop();
-  void queue_bridge_frame(const struct AVFrame *frame);
+  void queue_bridge_frame(const AVFrame *frame);
   void bridge_loop();
 
   obs_source_t *source_ = nullptr;
   ScrcpySettings settings_;
 
   std::atomic<bool> stopping_{false};
+  std::atomic<bool> video_stream_ended_{false};
   std::thread worker_;
   std::thread video_thread_;
   std::thread audio_thread_;
@@ -51,7 +70,8 @@ private:
 
   std::mutex bridge_mutex_;
   std::condition_variable bridge_condition_;
-  std::vector<uint8_t> bridge_pending_frame_;
+  AVFrame *bridge_pending_frame_ = nullptr;
+  std::atomic<bool> bridge_busy_{false};
   std::chrono::steady_clock::time_point last_bridge_frame_at_{};
 
   uintptr_t server_process_ = 0;
@@ -66,4 +86,8 @@ private:
 
   std::atomic<uint32_t> width_{1280};
   std::atomic<uint32_t> height_{720};
+
+  StreamClock stream_clock_;
+  std::atomic<uint64_t> latest_video_pts_us_{0};
+  std::atomic<uint64_t> latest_presented_video_pts_us_{0};
 };

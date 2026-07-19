@@ -36,11 +36,21 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.cpp
+    src/airplay-log-filter.cpp
+    src/airplay-runtime.cpp
+    src/airplay-source.cpp
+    src/airplay-video-format.cpp
     src/scrcpy-command.cpp
+    src/scrcpy-low-latency.cpp
     src/scrcpy-runtime.cpp
     src/scrcpy-settings.cpp
     src/scrcpy-source.cpp
+    src/airplay-log-filter.h
+    src/airplay-runtime.h
+    src/airplay-source.h
+    src/airplay-video-format.h
     src/scrcpy-command.h
+    src/scrcpy-low-latency.h
     src/scrcpy-runtime.h
     src/scrcpy-settings.h
     src/scrcpy-source.h
@@ -61,3 +71,42 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE NOMINMAX WIN32_LEAN_AND
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(
+    scrcpy-command-test
+    tests/scrcpy-command-test.cpp
+    src/scrcpy-command.cpp
+  )
+  target_include_directories(scrcpy-command-test PRIVATE src)
+  add_test(NAME scrcpy-command-test COMMAND scrcpy-command-test)
+
+  add_executable(
+    scrcpy-low-latency-test
+    tests/scrcpy-low-latency-test.cpp
+    src/scrcpy-low-latency.cpp
+  )
+  target_include_directories(scrcpy-low-latency-test PRIVATE src)
+  add_test(NAME scrcpy-low-latency-test COMMAND scrcpy-low-latency-test)
+
+  add_executable(
+    airplay-video-format-test
+    tests/airplay-video-format-test.cpp
+    src/airplay-video-format.cpp
+  )
+  target_include_directories(
+    airplay-video-format-test
+    PRIVATE
+      "${FFMPEG_INCLUDE_DIR}"
+      src
+  )
+  add_test(NAME airplay-video-format-test COMMAND airplay-video-format-test)
+
+  add_executable(
+    airplay-log-filter-test
+    tests/airplay-log-filter-test.cpp
+    src/airplay-log-filter.cpp
+  )
+  target_include_directories(airplay-log-filter-test PRIVATE src)
+  add_test(NAME airplay-log-filter-test COMMAND airplay-log-filter-test)
+endif()

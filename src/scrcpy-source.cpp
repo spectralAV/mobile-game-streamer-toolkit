@@ -1,11 +1,13 @@
 #include "scrcpy-source.h"
 
 #include "scrcpy-command.h"
+#include "scrcpy-low-latency.h"
 #include "scrcpy-runtime.h"
 
 #include <obs-module.h>
 #include <util/platform.h>
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <cstdio>
@@ -182,11 +184,11 @@ std::vector<EncoderInfo> scan_scrcpy_encoders(const ScrcpySettings &settings)
       quote_cmd_arg(settings.scrcpy_path.empty() ? kDefaultScrcpyPath
                                                  : settings.scrcpy_path);
 
-  if (!settings.serial.empty()) {
-    command += " --serial=" + quote_cmd_arg(settings.serial);
-  } else if (settings.connection_mode == ConnectionMode::Tcpip &&
-             !settings.tcpip_address.empty()) {
+  if (settings.connection_mode == ConnectionMode::Tcpip &&
+      !settings.tcpip_address.empty()) {
     command += " --tcpip=" + quote_cmd_arg(settings.tcpip_address);
+  } else if (!settings.serial.empty()) {
+    command += " --serial=" + quote_cmd_arg(settings.serial);
   } else if (settings.connection_mode == ConnectionMode::Usb) {
     command += " --select-usb";
   }
@@ -282,6 +284,57 @@ void populate_encoder_list(obs_property_t *list,
   if (!selected_found) {
     std::string label = selected + " (not currently listed)";
     obs_property_list_add_string(list, label.c_str(), selected.c_str());
+  }
+}
+
+void populate_video_codec_options_list(obs_property_t *list,
+                                       const std::string &selected)
+{
+  const std::string normalized = normalize_video_codec_options(selected);
+  struct Preset {
+    const char *label;
+    const char *value;
+  };
+
+  static const Preset presets[] = {
+      {"Device default (no extra options)", ""},
+      {"1s keyframes (i-frame-interval:float=1)", "i-frame-interval:float=1"},
+      {"0.5s keyframes (i-frame-interval:float=0.5)",
+       "i-frame-interval:float=0.5"},
+      {"2s keyframes (i-frame-interval:float=2)", "i-frame-interval:float=2"},
+  };
+
+  obs_property_list_clear(list);
+  bool selected_found = normalized.empty();
+  for (const Preset &preset : presets) {
+    obs_property_list_add_string(list, preset.label, preset.value);
+    if (normalized == preset.value) {
+      selected_found = true;
+    }
+  }
+
+  if (!selected_found && !normalized.empty()) {
+    const std::string label = normalized + " (custom)";
+    obs_property_list_add_string(list, label.c_str(), normalized.c_str());
+    selected_found = true;
+  }
+
+  if (!selected_found && !selected.empty()) {
+    obs_property_list_add_string(list, selected.c_str(), normalized.c_str());
+  }
+}
+
+void populate_audio_codec_options_list(obs_property_t *list,
+                                       const std::string &selected)
+{
+  const std::string normalized = normalize_audio_codec_options(selected);
+  obs_property_list_clear(list);
+  obs_property_list_add_string(list, "None", "");
+
+  if (!normalized.empty()) {
+    obs_property_list_add_string(list, normalized.c_str(), normalized.c_str());
+  } else if (!selected.empty() && selected != "None") {
+    obs_property_list_add_string(list, selected.c_str(), "");
   }
 }
 
@@ -392,8 +445,11 @@ ScrcpySettings read_settings(obs_data_t *data)
     settings.max_size = 0;
   }
   settings.max_fps = static_cast<int32_t>(obs_data_get_int(data, "max_fps"));
-  settings.video_codec_options =
-      obs_data_get_string_or_default(data, "video_codec_options", "");
+  settings.video_codec_options = normalize_video_codec_options(
+      obs_data_get_string_or_default(data, "video_codec_options", ""));
+  settings.encoder_refresh_minutes = std::clamp(
+      static_cast<int32_t>(obs_data_get_int(data, "encoder_refresh_minutes")),
+      0, 60);
 
   settings.audio_codec =
       obs_data_get_string_or_default(data, "audio_codec", "opus");
@@ -401,17 +457,21 @@ ScrcpySettings read_settings(obs_data_t *data)
       obs_data_get_string_or_default(data, "audio_encoder", "");
   settings.audio_bit_rate =
       obs_data_get_string_or_default(data, "audio_bit_rate", "128K");
-  settings.audio_buffer_ms =
-      static_cast<int32_t>(obs_data_get_int(data, "audio_buffer_ms"));
+  settings.audio_buffer_ms = std::clamp(
+      static_cast<int32_t>(obs_data_get_int(data, "audio_buffer_ms")), 0,
+      kMaxRealtimeDelayMs);
   settings.audio_source =
       obs_data_get_string_or_default(data, "audio_source", "output");
-  settings.audio_codec_options =
-      obs_data_get_string_or_default(data, "audio_codec_options", "");
+  settings.audio_codec_options = normalize_audio_codec_options(
+      obs_data_get_string_or_default(data, "audio_codec_options", ""));
   settings.cv_bridge_enabled = obs_data_get_bool(data, "cv_bridge_enabled");
   settings.cv_bridge_fps =
-      static_cast<int32_t>(obs_data_get_int(data, "cv_bridge_fps"));
+      std::clamp(static_cast<int32_t>(obs_data_get_int(data, "cv_bridge_fps")),
+                 1, 10);
   settings.cv_bridge_max_width =
-      static_cast<int32_t>(obs_data_get_int(data, "cv_bridge_max_width"));
+      std::clamp(static_cast<int32_t>(
+                     obs_data_get_int(data, "cv_bridge_max_width")),
+                 0, 4096);
 
   return settings;
 }
@@ -420,7 +480,9 @@ ScrcpySettings read_settings(obs_data_t *data)
 
 ScrcpySource::ScrcpySource(obs_source_t *source)
     : source_(source), runtime_(std::make_unique<ScrcpyRuntime>(source))
-{}
+{
+  obs_source_set_async_unbuffered(source_, true);
+}
 
 ScrcpySource::~ScrcpySource()
 {
@@ -503,14 +565,15 @@ void scrcpy_source_get_defaults(obs_data_t *settings)
   obs_data_set_default_string(settings, "video_codec", "h264");
   obs_data_set_default_string(settings, "video_bit_rate", "8M");
   obs_data_set_default_int(settings, "max_size", 0);
-  obs_data_set_default_int(settings, "max_fps", 0);
+  obs_data_set_default_int(settings, "max_fps", 60);
+  obs_data_set_default_int(settings, "encoder_refresh_minutes", 0);
   obs_data_set_default_string(settings, "audio_codec", "opus");
   obs_data_set_default_string(settings, "audio_bit_rate", "128K");
-  obs_data_set_default_int(settings, "audio_buffer_ms", 50);
+  obs_data_set_default_int(settings, "audio_buffer_ms", 0);
   obs_data_set_default_string(settings, "audio_source", "output");
   obs_data_set_default_bool(settings, "cv_bridge_enabled", false);
   obs_data_set_default_int(settings, "cv_bridge_fps", 5);
-  obs_data_set_default_int(settings, "cv_bridge_max_width", 960);
+  obs_data_set_default_int(settings, "cv_bridge_max_width", 0);
 }
 
 obs_properties_t *scrcpy_source_get_properties(void *data)
@@ -566,6 +629,9 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
       obs_properties_add_list(props, "video_encoder",
                               obs_module_text("ScrcpySource.VideoEncoder"),
                               OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+  obs_properties_add_text(
+      props, "video_encoder_help",
+      obs_module_text("ScrcpySource.VideoEncoderHelp"), OBS_TEXT_INFO);
   obs_properties_add_text(props, "video_bit_rate",
                           obs_module_text("ScrcpySource.VideoBitRate"),
                           OBS_TEXT_DEFAULT);
@@ -573,9 +639,18 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
                          obs_module_text("ScrcpySource.MaxSize"), 0, 8192, 16);
   obs_properties_add_int(props, "max_fps",
                          obs_module_text("ScrcpySource.MaxFps"), 0, 240, 1);
-  obs_properties_add_text(props, "video_codec_options",
-                          obs_module_text("ScrcpySource.VideoCodecOptions"),
-                          OBS_TEXT_DEFAULT);
+  obs_property_t *video_codec_options = obs_properties_add_list(
+      props, "video_codec_options",
+      obs_module_text("ScrcpySource.VideoCodecOptions"), OBS_COMBO_TYPE_EDITABLE,
+      OBS_COMBO_FORMAT_STRING);
+  obs_properties_add_text(
+      props, "video_codec_options_help",
+      obs_module_text("ScrcpySource.VideoCodecOptionsHelp"), OBS_TEXT_INFO);
+  populate_video_codec_options_list(video_codec_options,
+                                    settings.video_codec_options);
+  obs_properties_add_int(
+      props, "encoder_refresh_minutes",
+      obs_module_text("ScrcpySource.EncoderRefreshMinutes"), 0, 60, 1);
 
   const char *audio_codecs[] = {"opus", "aac", "flac", "raw"};
   add_codec_list(props, "audio_codec",
@@ -585,12 +660,15 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
       obs_properties_add_list(props, "audio_encoder",
                               obs_module_text("ScrcpySource.AudioEncoder"),
                               OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+  obs_properties_add_text(
+      props, "audio_encoder_help",
+      obs_module_text("ScrcpySource.AudioEncoderHelp"), OBS_TEXT_INFO);
   obs_properties_add_text(props, "audio_bit_rate",
                           obs_module_text("ScrcpySource.AudioBitRate"),
                           OBS_TEXT_DEFAULT);
   obs_properties_add_int(props, "audio_buffer_ms",
                          obs_module_text("ScrcpySource.AudioBufferMs"), 0,
-                         1000, 5);
+                         kMaxRealtimeDelayMs, 5);
 
   const char *audio_sources[] = {"output",
                                  "playback",
@@ -602,18 +680,24 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
   add_codec_list(props, "audio_source",
                  obs_module_text("ScrcpySource.AudioSource"), audio_sources,
                  7);
-  obs_properties_add_text(props, "audio_codec_options",
-                           obs_module_text("ScrcpySource.AudioCodecOptions"),
-                           OBS_TEXT_DEFAULT);
+  obs_property_t *audio_codec_options = obs_properties_add_list(
+      props, "audio_codec_options",
+      obs_module_text("ScrcpySource.AudioCodecOptions"), OBS_COMBO_TYPE_EDITABLE,
+      OBS_COMBO_FORMAT_STRING);
+  obs_properties_add_text(
+      props, "audio_codec_options_help",
+      obs_module_text("ScrcpySource.AudioCodecOptionsHelp"), OBS_TEXT_INFO);
+  populate_audio_codec_options_list(audio_codec_options,
+                                    settings.audio_codec_options);
 
   obs_properties_add_bool(props, "cv_bridge_enabled",
                           obs_module_text("ScrcpySource.CvBridgeEnabled"));
   obs_properties_add_int(props, "cv_bridge_fps",
-                         obs_module_text("ScrcpySource.CvBridgeFps"), 1, 15,
+                         obs_module_text("ScrcpySource.CvBridgeFps"), 1, 10,
                          1);
   obs_properties_add_int(props, "cv_bridge_max_width",
                          obs_module_text("ScrcpySource.CvBridgeMaxWidth"),
-                         320, 1920, 16);
+                         0, 4096, 16);
 
   populate_encoder_list(video_encoder, {}, "video", settings.video_codec,
                         settings.video_encoder);

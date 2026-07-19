@@ -1,13 +1,16 @@
 param(
     [string]$Configuration = "RelWithDebInfo",
     [string]$PluginName = "obs-scrcpy-source",
-    [string]$ScrcpyDir = "C:\Users\rokas\Downloads\scrcpy-win64-v4.0"
+    [string]$FfmpegRuntimeDir = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $dll = Join-Path $repoRoot "build\$Configuration\$PluginName.dll"
+if (-not $FfmpegRuntimeDir) {
+    $FfmpegRuntimeDir = Join-Path $repoRoot "vendor\ffmpeg-8.0.1-full_build-shared\bin"
+}
 
 if (-not (Test-Path -LiteralPath $dll)) {
     throw "Plugin DLL not found. Build first with: .\scripts\configure-build.ps1 -Build"
@@ -24,7 +27,7 @@ Get-ChildItem -LiteralPath (Join-Path $repoRoot "data") |
     Copy-Item -Destination $dataDir -Recurse -Force
 
 foreach ($runtimeDll in @("avcodec-62.dll", "avutil-60.dll", "swresample-6.dll")) {
-    $source = Join-Path $ScrcpyDir $runtimeDll
+    $source = Join-Path $FfmpegRuntimeDir $runtimeDll
     if (-not (Test-Path -LiteralPath $source)) {
         throw "Required runtime DLL not found: $source"
     }

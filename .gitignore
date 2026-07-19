@@ -9,3 +9,5 @@ cmake/.CMakeBuildNumber
 *.suo
 *.mkv
 *.mp4
+*.obj
+debug-*.log
