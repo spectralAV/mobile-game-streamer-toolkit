@@ -41,6 +41,11 @@ launch `AirPlayServer.exe` or capture a window.
 
 The plugin does not capture a scrcpy window. It runs the scrcpy server in read-only mode, receives encoded packets, decodes them with FFmpeg/libavcodec, then pushes raw frames and audio into OBS via `obs_source_output_video()` and `obs_source_output_audio()`.
 
+AirPlay receiver startup is deferred while OBS restores a scene collection.
+Use **Restart receiver** in the AirPlay source properties to start it explicitly.
+This prevents a failure inside the external AirPlay runtime from taking down OBS
+during application startup.
+
 When `Send frames to MLBB CoPilot CV bridge` is enabled, a background latest-frame worker publishes throttled raw BGRA samples to `http://127.0.0.1:8787/api/capture/obs/frame.raw`. This allows CoPilot to analyze the same source OBS is rendering without blocking OBS output or opening a second scrcpy session.
 
 Video presentation is asynchronous and unbuffered in OBS for realtime streaming.

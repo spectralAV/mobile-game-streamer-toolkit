@@ -84,5 +84,10 @@ AirPlayServer callback interface, filters callbacks to one active Apple device,
 and maps `SFgVideoFrame`/`SFgAudioFrame` payloads directly to OBS async video
 and audio frames.
 
+Receiver startup is deliberately deferred during scene restoration. The bundled
+third-party AirPlay runtime has previously faulted in its video worker, so only
+an explicit **Restart receiver** action may enter `fgServerStart()`; this keeps a
+saved enabled source from creating an OBS startup crash loop.
+
 This source is screen/audio capture only. AirPlay media URL playback callbacks
 are no-ops and are logged as unsupported.

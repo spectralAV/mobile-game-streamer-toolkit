@@ -90,16 +90,24 @@ AirPlaySource::~AirPlaySource()
 void AirPlaySource::update(obs_data_t *settings)
 {
   bool changed = false;
+  bool initial_update = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     AirPlaySettings next_settings = read_settings(settings);
     const std::string next_signature = settings_signature(next_settings);
+    initial_update = last_signature_.empty();
     changed = next_signature != last_signature_;
     settings_ = next_settings;
     last_signature_ = next_signature;
   }
 
   if (changed) {
+    if (initial_update) {
+      blog(LOG_WARNING,
+           "[obs-airplay-source] receiver start deferred during scene load; use Restart receiver to start it explicitly");
+      stop();
+      return;
+    }
     restart();
   }
 }
