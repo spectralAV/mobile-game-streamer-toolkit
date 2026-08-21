@@ -40,6 +40,21 @@ void expect(bool condition, const char *description)
 
 int main()
 {
+  expect(parse_scrcpy_version_output(
+             "scrcpy 4.1 <https://github.com/Genymobile/scrcpy>\r\n\r\n"
+             "Dependencies (compiled / linked):\r\n") == "4.1",
+         "scrcpy 4.1 version output is parsed");
+  expect(parse_scrcpy_version_output("scrcpy 4.0\n") == "4.0",
+         "scrcpy 4.0 version output is parsed");
+  expect(parse_scrcpy_version_output("unexpected output").empty(),
+         "invalid scrcpy version output is rejected");
+  expect(is_supported_scrcpy_server_version("4.0"),
+         "scrcpy 4.0 remains supported");
+  expect(is_supported_scrcpy_server_version("4.1"),
+         "scrcpy 4.1 is supported");
+  expect(!is_supported_scrcpy_server_version("4.2"),
+         "unknown future protocols are rejected");
+
   ScrcpySettings tcpip;
   tcpip.connection_mode = ConnectionMode::Tcpip;
   tcpip.tcpip_address = "10.160.216.99:40661";

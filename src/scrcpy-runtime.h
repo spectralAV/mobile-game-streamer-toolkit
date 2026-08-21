@@ -15,19 +15,6 @@
 
 struct AVFrame;
 
-class StreamClock {
-public:
-  void reset();
-  uint64_t map_pts_us(uint64_t pts_us);
-  bool has_baseline() const;
-
-private:
-  mutable std::mutex mutex_;
-  uint64_t first_pts_us_ = 0;
-  uint64_t obs_start_ns_ = 0;
-  bool have_baseline_ = false;
-};
-
 class ScrcpyRuntime {
 public:
   explicit ScrcpyRuntime(obs_source_t *source);
@@ -83,11 +70,12 @@ private:
   uint32_t scid_ = 0;
   std::string socket_name_;
   std::string device_name_;
+  std::string server_version_;
 
   std::atomic<uint32_t> width_{1280};
   std::atomic<uint32_t> height_{720};
 
-  StreamClock stream_clock_;
   std::atomic<uint64_t> latest_video_pts_us_{0};
   std::atomic<uint64_t> latest_presented_video_pts_us_{0};
+  std::atomic<uint64_t> first_video_frame_at_ns_{0};
 };

@@ -3,6 +3,7 @@
 #include "scrcpy-low-latency.h"
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <string>
 
@@ -25,6 +26,38 @@ void append_if_positive(std::vector<std::string> &args, std::string flag,
 }
 
 } // namespace
+
+std::string parse_scrcpy_version_output(const std::string &output)
+{
+  constexpr const char *prefix = "scrcpy ";
+  const size_t prefix_pos = output.find(prefix);
+  if (prefix_pos == std::string::npos) {
+    return {};
+  }
+
+  const size_t version_begin =
+      prefix_pos + std::char_traits<char>::length(prefix);
+  size_t version_end = version_begin;
+  while (version_end < output.size()) {
+    const unsigned char c = static_cast<unsigned char>(output[version_end]);
+    if (!std::isdigit(c) && c != '.') {
+      break;
+    }
+    ++version_end;
+  }
+
+  if (version_end == version_begin) {
+    return {};
+  }
+  return output.substr(version_begin, version_end - version_begin);
+}
+
+bool is_supported_scrcpy_server_version(const std::string &version)
+{
+  // The server protocol is private and requires an exact client version.
+  // 4.1 only extends the 4.0 media protocol with VP8/VP9 codec identifiers.
+  return version == "4.0" || version == "4.1";
+}
 
 bool looks_like_mediaformat_options(const std::string &value)
 {

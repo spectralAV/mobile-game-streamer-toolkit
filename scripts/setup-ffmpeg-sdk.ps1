@@ -1,6 +1,6 @@
 param(
     [string]$FfmpegVersion = "8.0.1",
-    [string]$ScrcpyDir = "C:\Users\rokas\Downloads\scrcpy-win64-v4.0",
+    [string]$ScrcpyDir = "C:\Program Files\scrcpy\4.1",
     [string]$VendorDir = "vendor"
 )
 

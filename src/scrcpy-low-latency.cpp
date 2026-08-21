@@ -1,12 +1,17 @@
 #include "scrcpy-low-latency.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace {
 
-constexpr uint64_t kVideoLiveEdgeBacklogBytes = 512 * 1024;
-constexpr uint64_t kVideoCaughtUpBacklogBytes = 128 * 1024;
-constexpr uint64_t kAudioLiveEdgeBacklogBytes = 128 * 1024;
+// The Windows receive buffer used by this source is normally 64 KiB. Thresholds
+// above that value never fired even while adb had seconds of queued video.
+constexpr uint64_t kVideoLiveEdgeBacklogBytes = 48 * 1024;
+constexpr uint64_t kVideoCaughtUpBacklogBytes = 8 * 1024;
+constexpr double kVideoCaughtUpDriftMs = 50.0;
+constexpr double kVideoRestartDriftMs = 1000.0;
 
 } // namespace
 
@@ -27,19 +32,39 @@ uint32_t scrcpy_reconnect_delay_ms(uint32_t retry_count)
   return std::min<uint32_t>(kMaximumDelayMs, kInitialDelayMs << shift);
 }
 
+bool scrcpy_first_video_frame_timed_out(uint64_t now_ns,
+                                        uint64_t session_started_ns,
+                                        uint64_t first_frame_at_ns)
+{
+  if (session_started_ns == 0 || first_frame_at_ns != 0 ||
+      now_ns < session_started_ns) {
+    return false;
+  }
+
+  constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
+  return now_ns - session_started_ns >=
+         static_cast<uint64_t>(kFirstVideoFrameTimeoutMs) *
+             kNanosecondsPerMillisecond;
+}
+
 LiveEdgeVideoAction LiveEdgeVideoPolicy::decide(uint64_t socket_backlog_bytes,
                                                 double pts_drift_ms)
 {
+  if (std::abs(pts_drift_ms) > kVideoRestartDriftMs) {
+    suppressing_presentation_ = false;
+    clock_rebase_requested_ = false;
+    return LiveEdgeVideoAction::RestartStream;
+  }
+
   if (suppressing_presentation_) {
-    // Once the receive queue is drained there is nothing left to catch up by
-    // suppressing presentation. Resume and let the caller rebase its PTS clock
-    // so a persistent transport offset cannot freeze the source forever.
-    if (socket_backlog_bytes <= kVideoCaughtUpBacklogBytes) {
+    if (socket_backlog_bytes <= kVideoCaughtUpBacklogBytes &&
+        pts_drift_ms <= kVideoCaughtUpDriftMs) {
       suppressing_presentation_ = false;
       clock_rebase_requested_ = true;
     }
-  } else if (socket_backlog_bytes > kVideoLiveEdgeBacklogBytes ||
-             pts_drift_ms > static_cast<double>(kMaxRealtimeDelayMs)) {
+  } else if (pts_drift_ms > static_cast<double>(kMaxRealtimeDelayMs) ||
+             (socket_backlog_bytes > kVideoLiveEdgeBacklogBytes &&
+              pts_drift_ms > kVideoCaughtUpDriftMs)) {
     suppressing_presentation_ = true;
   }
 
@@ -58,40 +83,30 @@ LiveEdgeAudioAction live_edge_audio_action(uint64_t packet_pts_us,
                                            uint64_t latest_presented_video_pts_us,
                                            uint64_t socket_backlog_bytes)
 {
-  // Only skip stale audio already received on a backlogged socket.
-  // Ahead-of-video audio is kept and stamped at the live edge instead.
-  if (socket_backlog_bytes <= kAudioLiveEdgeBacklogBytes ||
-      latest_presented_video_pts_us == 0) {
+  (void)socket_backlog_bytes;
+  if (latest_presented_video_pts_us == 0) {
     return LiveEdgeAudioAction::Decode;
   }
+  // Stale audio can remain queued behind video even after FIONREAD falls below
+  // one receive-buffer window. PTS is the authoritative cross-stream signal.
   if (packet_pts_us + kMaxRealtimeDelayUs < latest_presented_video_pts_us) {
     return LiveEdgeAudioAction::SkipPayload;
   }
   return LiveEdgeAudioAction::Decode;
 }
 
-uint64_t realtime_audio_timestamp_ns(uint64_t audio_pts_us,
-                                      uint64_t latest_presented_video_pts_us,
-                                      uint64_t now_ns,
-                                      int target_delay_ms)
+uint64_t scrcpy_media_timestamp_ns(uint64_t pts_us, int target_delay_ms)
 {
-  const int64_t target_delay_us =
-      static_cast<int64_t>(
+  constexpr uint64_t kNanosecondsPerMicrosecond = 1000;
+  constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
+  const uint64_t delay_ns =
+      static_cast<uint64_t>(
           std::clamp(target_delay_ms, 0, kMaxRealtimeDelayMs)) *
-      1000;
-  // Prevent OBS from queueing seconds of future audio after video stutters.
-  // Always decode; clamp scheduling to ±kMaxRealtimeDelayMs around wall clock.
-  if (latest_presented_video_pts_us == 0) {
-    return now_ns + static_cast<uint64_t>(target_delay_us) * 1000;
+      kNanosecondsPerMillisecond;
+  if (pts_us >
+      (std::numeric_limits<uint64_t>::max() - delay_ns) /
+          kNanosecondsPerMicrosecond) {
+    return std::numeric_limits<uint64_t>::max();
   }
-
-  int64_t delta_us = static_cast<int64_t>(audio_pts_us) -
-                         static_cast<int64_t>(latest_presented_video_pts_us) +
-                     target_delay_us;
-  delta_us = std::clamp(delta_us,
-                        -static_cast<int64_t>(kMaxRealtimeDelayUs),
-                        static_cast<int64_t>(kMaxRealtimeDelayUs));
-  const int64_t ts =
-      static_cast<int64_t>(now_ns) + delta_us * 1000;
-  return ts > 0 ? static_cast<uint64_t>(ts) : now_ns;
+  return pts_us * kNanosecondsPerMicrosecond + delay_ns;
 }

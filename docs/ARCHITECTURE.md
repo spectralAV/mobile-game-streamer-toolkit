@@ -43,17 +43,19 @@ The source settings should not expose any control toggle.
 
 ## Video codec choices
 
-scrcpy 4.0 supports:
+scrcpy 4.1 supports:
 
 - `h264`
 - `h265`
 - `av1`
+- `vp8`
+- `vp9`
 
 The codec selected here affects the device-side MediaCodec encoder and the USB/TCP transport stream. OBS may still encode the final stream or recording using a different codec in OBS output settings.
 
 ## Audio quality controls
 
-scrcpy 4.0 supports:
+scrcpy 4.0/4.1 supports:
 
 - `--audio-codec=opus|aac|flac|raw`
 - `--audio-bit-rate=<value>`
@@ -67,11 +69,11 @@ option, so the delay is applied to OBS audio timestamps locally.
 
 1. OBS source registration and settings UI. Done.
 2. Local capability probing with `scrcpy --list-encoders`. Done.
-3. ADB tunnel/session startup matching scrcpy 4.0. Done for USB/selected serial via `adb reverse`.
+3. ADB tunnel/session startup matching scrcpy 4.0 and 4.1. Done for USB/selected serial via `adb reverse`; the selected package version is detected and passed to the exact-version server handshake.
 4. Video packet reader and codec header handling. Done.
-5. FFmpeg decode to OBS async video frames. Done with D3D11VA plus threaded software fallback and latest-frame OBS presentation. During measured lag, dependency frames continue decoding while stale presentation is suppressed; once the socket backlog drains, presentation resumes and the host clock is rebased.
-6. Audio packet reader and FFmpeg decode/resampling to OBS audio frames. Done to 48 kHz stereo S16, with configurable timestamp delay applied locally.
-7. Reconnect handling and device switching. Done: the runtime verifies the selected device and reconnects dropped sessions with exponential backoff capped at 60 seconds, without restarting the global ADB daemon.
+5. FFmpeg decode to OBS async video frames. Done with D3D11VA plus threaded software fallback and latest-frame OBS presentation. During measured lag, dependency frames continue decoding while stale presentation is suppressed; multi-second clock discontinuities reconnect at the live edge instead of replaying a stale queue. AV1 prefers dav1d or FFmpeg's native decoder over libaom.
+6. Audio packet reader and FFmpeg decode/resampling to OBS audio frames. Done to 48 kHz stereo S16 on the same device PTS timeline as decoded video, with stale-audio dropping and configurable timestamp delay. OBS therefore applies one timing adjustment to both streams instead of reconciling independent wall-clock and media-clock timestamps.
+7. Reconnect handling and device switching. Done: the runtime verifies the selected device and reconnects dropped sessions with exponential backoff capped at 60 seconds, without restarting the global ADB daemon. A three-second first-frame watchdog also reconnects sessions whose sockets open but whose decoder never produces startup video.
 8. Installer/package layout for OBS Studio on Windows. Done for the global OBS plugin install with the full shared FFmpeg runtime required by D3D11VA.
 9. Optional local MLBB CoPilot frame bridge. Done as a throttled decoded-frame HTTP publisher; crop-specific transport and shared memory remain future optimizations.
 

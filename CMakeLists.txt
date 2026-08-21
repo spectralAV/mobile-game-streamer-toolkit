@@ -20,7 +20,7 @@ set(FFMPEG_INCLUDE_DIR "" CACHE PATH "Directory containing FFmpeg headers")
 set(AVCODEC_LIB "" CACHE FILEPATH "Path to avcodec import library")
 set(AVUTIL_LIB "" CACHE FILEPATH "Path to avutil import library")
 set(SWRESAMPLE_LIB "" CACHE FILEPATH "Path to swresample import library")
-set(SCRCPY_PACKAGE_DIR "C:/Users/rokas/Downloads/scrcpy-win64-v4.0" CACHE PATH "scrcpy package directory")
+set(SCRCPY_PACKAGE_DIR "C:/Program Files/scrcpy/4.1" CACHE PATH "scrcpy package directory")
 
 if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
   message(FATAL_ERROR "FFMPEG_INCLUDE_DIR must point to FFmpeg include directory")

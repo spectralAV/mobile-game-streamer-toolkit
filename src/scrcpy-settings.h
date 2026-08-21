@@ -35,4 +35,4 @@ struct ScrcpySettings {
 };
 
 constexpr const char *kDefaultScrcpyPath =
-    "C:/Users/rokas/Downloads/scrcpy-win64-v4.0/scrcpy.exe";
+    "C:/Program Files/scrcpy/4.1/scrcpy.exe";

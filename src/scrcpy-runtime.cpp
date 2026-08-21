@@ -48,6 +48,8 @@ constexpr uint64_t kPacketPtsMask = kPacketFlagKeyFrame - 1;
 constexpr uint32_t kCodecH264 = 0x68323634;
 constexpr uint32_t kCodecH265 = 0x68323635;
 constexpr uint32_t kCodecAv1 = 0x00617631;
+constexpr uint32_t kCodecVp8 = 0x00767038;
+constexpr uint32_t kCodecVp9 = 0x00767039;
 constexpr uint32_t kCodecOpus = 0x6f707573;
 constexpr uint32_t kCodecAac = 0x00616163;
 constexpr uint32_t kCodecFlac = 0x666c6163;
@@ -142,6 +144,28 @@ std::string server_path(const ScrcpySettings &settings)
   std::string scrcpy_path =
       settings.scrcpy_path.empty() ? kDefaultScrcpyPath : settings.scrcpy_path;
   return to_windows_path(scrcpy_dir_from_path(scrcpy_path) + "\\scrcpy-server");
+}
+
+std::string detect_scrcpy_server_version(const ScrcpySettings &settings)
+{
+  const std::string scrcpy_path =
+      settings.scrcpy_path.empty() ? kDefaultScrcpyPath : settings.scrcpy_path;
+  const std::string command = quote_arg(scrcpy_path) + " --version 2>&1";
+  FILE *pipe = _popen(command.c_str(), "r");
+  if (!pipe) {
+    return {};
+  }
+
+  std::array<char, 1024> buffer = {};
+  std::string output;
+  while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+    output += buffer.data();
+  }
+  const int exit_code = _pclose(pipe);
+  if (exit_code != 0) {
+    return {};
+  }
+  return parse_scrcpy_version_output(output);
 }
 
 bool run_process_wait(const std::vector<std::string> &args, DWORD *exit_code,
@@ -293,6 +317,12 @@ uint32_t codec_id_for_name(const std::string &name)
   if (name == "av1") {
     return kCodecAv1;
   }
+  if (name == "vp8") {
+    return kCodecVp8;
+  }
+  if (name == "vp9") {
+    return kCodecVp9;
+  }
   if (name == "opus") {
     return kCodecOpus;
   }
@@ -317,6 +347,10 @@ AVCodecID av_codec_for_scrcpy_id(uint32_t codec_id)
     return AV_CODEC_ID_HEVC;
   case kCodecAv1:
     return AV_CODEC_ID_AV1;
+  case kCodecVp8:
+    return AV_CODEC_ID_VP8;
+  case kCodecVp9:
+    return AV_CODEC_ID_VP9;
   case kCodecOpus:
     return AV_CODEC_ID_OPUS;
   case kCodecAac:
@@ -328,6 +362,30 @@ AVCodecID av_codec_for_scrcpy_id(uint32_t codec_id)
   default:
     return AV_CODEC_ID_NONE;
   }
+}
+
+const AVCodec *find_video_decoder(uint32_t codec_id)
+{
+  if (codec_id == kCodecAv1) {
+    // OBS's FFmpeg registers libaom first for AV1. Prefer dav1d when bundled,
+    // then the native decoder, which can expose D3D11VA and is substantially
+    // faster than libaom for this realtime decode path.
+    if (const AVCodec *codec = avcodec_find_decoder_by_name("libdav1d")) {
+      return codec;
+    }
+    if (const AVCodec *codec = avcodec_find_decoder_by_name("av1")) {
+      return codec;
+    }
+  } else if (codec_id == kCodecVp8) {
+    if (const AVCodec *codec = avcodec_find_decoder_by_name("vp8")) {
+      return codec;
+    }
+  } else if (codec_id == kCodecVp9) {
+    if (const AVCodec *codec = avcodec_find_decoder_by_name("vp9")) {
+      return codec;
+    }
+  }
+  return avcodec_find_decoder(av_codec_for_scrcpy_id(codec_id));
 }
 
 enum video_colorspace obs_colorspace_for_frame(const AVFrame *frame)
@@ -708,35 +766,6 @@ bool post_bridge_raw_frame(const std::vector<uint8_t> &frame, int width,
 
 } // namespace
 
-void StreamClock::reset()
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  first_pts_us_ = 0;
-  obs_start_ns_ = 0;
-  have_baseline_ = false;
-}
-
-bool StreamClock::has_baseline() const
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  return have_baseline_;
-}
-
-uint64_t StreamClock::map_pts_us(uint64_t pts_us)
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (!have_baseline_) {
-    first_pts_us_ = pts_us;
-    obs_start_ns_ = os_gettime_ns();
-    have_baseline_ = true;
-  }
-
-  if (pts_us >= first_pts_us_) {
-    return obs_start_ns_ + (pts_us - first_pts_us_) * 1000;
-  }
-  return obs_start_ns_;
-}
-
 ScrcpyRuntime::ScrcpyRuntime(obs_source_t *source) : source_(source) {}
 
 ScrcpyRuntime::~ScrcpyRuntime()
@@ -748,11 +777,11 @@ void ScrcpyRuntime::start(const ScrcpySettings &settings)
 {
   stop();
   settings_ = settings;
+  server_version_.clear();
   stopping_ = false;
   video_stream_ended_ = false;
   bridge_busy_ = false;
   last_bridge_frame_at_ = {};
-  stream_clock_.reset();
   latest_video_pts_us_ = 0;
   latest_presented_video_pts_us_ = 0;
   if (settings_.cv_bridge_enabled) {
@@ -814,10 +843,20 @@ void ScrcpyRuntime::run()
     const bool connected = start_session();
     if (connected) {
       retry_count = 0;
+      const uint64_t video_session_started_ns = os_gettime_ns();
       while (!stopping_) {
         if (video_stream_ended_) {
           blog(LOG_WARNING,
                "[obs-scrcpy-source] video stream ended; reconnecting automatically");
+          break;
+        }
+
+        if (scrcpy_first_video_frame_timed_out(
+                os_gettime_ns(), video_session_started_ns,
+                first_video_frame_at_ns_.load())) {
+          blog(LOG_WARNING,
+               "[obs-scrcpy-source] no first video frame within %u ms; reconnecting automatically",
+               kFirstVideoFrameTimeoutMs);
           break;
         }
 
@@ -855,6 +894,25 @@ void ScrcpyRuntime::run()
 
 bool ScrcpyRuntime::start_session()
 {
+  if (server_version_.empty()) {
+    server_version_ = detect_scrcpy_server_version(settings_);
+  }
+  if (!is_supported_scrcpy_server_version(server_version_)) {
+    if (server_version_.empty()) {
+      const std::string scrcpy_path = settings_.scrcpy_path.empty()
+                                          ? kDefaultScrcpyPath
+                                          : settings_.scrcpy_path;
+      blog(LOG_ERROR,
+           "[obs-scrcpy-source] could not detect the scrcpy version from %s",
+           scrcpy_path.c_str());
+    } else {
+      blog(LOG_ERROR,
+           "[obs-scrcpy-source] unsupported scrcpy server version %s; supported versions are 4.0 and 4.1",
+           server_version_.c_str());
+    }
+    return false;
+  }
+
   std::random_device rd;
   scid_ = normalize_scrcpy_scid(rd());
   socket_name_ = "scrcpy_" + [&] {
@@ -918,6 +976,7 @@ bool ScrcpyRuntime::start_session()
   }
 
   video_stream_ended_ = false;
+  first_video_frame_at_ns_ = 0;
   video_thread_ = std::thread(&ScrcpyRuntime::video_loop, this);
   SetThreadPriority(static_cast<HANDLE>(video_thread_.native_handle()),
                     THREAD_PRIORITY_ABOVE_NORMAL);
@@ -1042,7 +1101,7 @@ bool ScrcpyRuntime::start_adb_server_process()
   args.push_back("app_process");
   args.push_back("/");
   args.push_back("com.genymobile.scrcpy.Server");
-  args.push_back("4.0");
+  args.push_back(server_version_);
 
   char scid_text[16];
   snprintf(scid_text, sizeof(scid_text), "scid=%08x", scid_);
@@ -1164,8 +1223,7 @@ void ScrcpyRuntime::video_loop()
   }
 
   uint32_t raw_codec_id = read_be32(codec_buf);
-  AVCodecID codec_id = av_codec_for_scrcpy_id(raw_codec_id);
-  const AVCodec *codec = avcodec_find_decoder(codec_id);
+  const AVCodec *codec = find_video_decoder(raw_codec_id);
   if (!codec) {
     blog(LOG_ERROR, "[obs-scrcpy-source] missing video decoder for codec 0x%08x",
          raw_codec_id);
@@ -1257,9 +1315,12 @@ void ScrcpyRuntime::video_loop()
                                                       : video_codec_options.c_str(),
        settings_.encoder_refresh_minutes);
 
-  auto emit_decoded_frame = [&](const AVFrame *output_frame) -> bool {
-    const uint64_t timestamp_ns = os_gettime_ns();
+  auto emit_decoded_frame = [&](const AVFrame *output_frame,
+                                uint64_t timestamp_ns) -> bool {
     if (output_obs_video_frame(source_, output_frame, timestamp_ns)) {
+      if (first_video_frame_at_ns_.load() == 0) {
+        first_video_frame_at_ns_.store(timestamp_ns);
+      }
       ++interval_frames;
       queue_bridge_frame(output_frame);
       width_ = static_cast<uint32_t>(output_frame->width);
@@ -1285,7 +1346,8 @@ void ScrcpyRuntime::video_loop()
     return false;
   };
 
-  auto transfer_and_emit_frame = [&](bool present_frame) -> bool {
+  auto transfer_and_emit_frame = [&](bool present_frame,
+                                     uint64_t timestamp_ns) -> bool {
     if (!present_frame) {
       ++interval_suppressed_frames;
       av_frame_unref(frame);
@@ -1309,22 +1371,34 @@ void ScrcpyRuntime::video_loop()
       output_frame = software_frame;
     }
 
-    const bool emitted = emit_decoded_frame(output_frame);
+    const bool emitted = emit_decoded_frame(output_frame, timestamp_ns);
     av_frame_unref(frame);
     av_frame_unref(software_frame);
     return emitted;
   };
 
-  auto decode_video_packet = [&](bool present_frame, bool track_presented_pts,
-                                 uint64_t packet_pts_us) {
+  auto decode_video_packet = [&](bool present_frame, bool track_presented_pts) {
     auto receive_frame = [&]() -> int {
       const int receive_ret = avcodec_receive_frame(ctx, frame);
       if (receive_ret < 0) {
         return receive_ret;
       }
-      const bool emitted = transfer_and_emit_frame(present_frame);
-      if (emitted && track_presented_pts) {
-        latest_presented_video_pts_us_.store(packet_pts_us);
+      int64_t decoded_pts = frame->best_effort_timestamp;
+      if (decoded_pts == AV_NOPTS_VALUE) {
+        decoded_pts = frame->pts;
+      }
+      if (decoded_pts == AV_NOPTS_VALUE) {
+        decoded_pts = packet->pts;
+      }
+      const uint64_t timestamp_ns =
+          decoded_pts >= 0
+              ? scrcpy_media_timestamp_ns(static_cast<uint64_t>(decoded_pts), 0)
+              : os_gettime_ns();
+      const bool emitted =
+          transfer_and_emit_frame(present_frame, timestamp_ns);
+      if (emitted && track_presented_pts && decoded_pts >= 0) {
+        latest_presented_video_pts_us_.store(
+            static_cast<uint64_t>(decoded_pts));
       }
       return 0;
     };
@@ -1395,9 +1469,9 @@ void ScrcpyRuntime::video_loop()
     LiveEdgeVideoAction live_edge_action =
         LiveEdgeVideoAction::DecodeAndPresent;
     bool rebase_live_edge_clock = false;
+    double current_pts_drift_ms = 0.0;
 
     if (!is_config) {
-      double current_pts_drift_ms = 0.0;
       const auto decision_at = std::chrono::steady_clock::now();
       if (have_pts_baseline && packet_pts_us >= first_pts) {
         const double host_elapsed_ms =
@@ -1416,6 +1490,12 @@ void ScrcpyRuntime::video_loop()
       live_edge_action =
           live_edge_policy.decide(socket_backlog, current_pts_drift_ms);
       rebase_live_edge_clock = live_edge_policy.take_clock_rebase_request();
+      if (live_edge_action == LiveEdgeVideoAction::RestartStream) {
+        blog(LOG_WARNING,
+             "[obs-scrcpy-source] video clock discontinuity %+.1f ms; reconnecting at live edge",
+             current_pts_drift_ms);
+        break;
+      }
     }
 
     if (av_new_packet(packet, packet_size) < 0) {
@@ -1442,7 +1522,7 @@ void ScrcpyRuntime::video_loop()
     }
 
     if (is_config) {
-      decode_video_packet(true, false, 0);
+      decode_video_packet(true, false);
     } else {
       const auto packet_received_at = std::chrono::steady_clock::now();
       latest_pts = packet_pts_us;
@@ -1472,7 +1552,7 @@ void ScrcpyRuntime::video_loop()
 
       const bool present_frame =
           live_edge_action == LiveEdgeVideoAction::DecodeAndPresent;
-      decode_video_packet(present_frame, true, packet_pts_us);
+      decode_video_packet(present_frame, true);
 
       const auto decode_output_finished_at = std::chrono::steady_clock::now();
       const double decode_output_ms =
@@ -1482,8 +1562,6 @@ void ScrcpyRuntime::video_loop()
       interval_decode_output_ms += decode_output_ms;
       max_decode_output_ms = std::max(max_decode_output_ms, decode_output_ms);
       last_decode_output_ms = decode_output_ms;
-      stream_clock_.map_pts_us(packet_pts_us);
-
       if (decode_output_finished_at >= next_diagnostics_at) {
         const double host_elapsed_ms =
             std::chrono::duration<double, std::milli>(
@@ -1669,7 +1747,8 @@ void ScrcpyRuntime::audio_loop()
   std::array<uint8_t, kPacketHeaderSize> header = {};
   uint64_t skipped_audio_packets = 0;
   uint64_t emitted_audio_frames = 0;
-  auto next_audio_debug_at = std::chrono::steady_clock::now();
+  auto next_audio_debug_at =
+      std::chrono::steady_clock::now() + std::chrono::seconds(2);
 
   auto emit_audio_frame = [&]() {
     if (!swr) {
@@ -1683,10 +1762,6 @@ void ScrcpyRuntime::audio_loop()
     if (frame_pts == AV_NOPTS_VALUE || frame_pts < 0) {
       return;
     }
-    const uint64_t audio_timestamp_ns = realtime_audio_timestamp_ns(
-        static_cast<uint64_t>(frame_pts), latest_presented_video_pts_us_.load(),
-        os_gettime_ns(), settings_.audio_buffer_ms);
-
     int out_samples = swr_get_out_samples(swr, frame->nb_samples);
     converted.resize(static_cast<size_t>(out_samples) * 2 * sizeof(int16_t));
     uint8_t *out_data[1] = {converted.data()};
@@ -1694,6 +1769,8 @@ void ScrcpyRuntime::audio_loop()
         swr, out_data, out_samples,
         const_cast<const uint8_t **>(frame->extended_data), frame->nb_samples);
     if (samples > 0) {
+      const uint64_t audio_timestamp_ns = scrcpy_media_timestamp_ns(
+          static_cast<uint64_t>(frame_pts), settings_.audio_buffer_ms);
       obs_source_audio audio = {};
       audio.data[0] = converted.data();
       audio.frames = static_cast<uint32_t>(samples);
@@ -1703,6 +1780,22 @@ void ScrcpyRuntime::audio_loop()
       audio.timestamp = audio_timestamp_ns;
       obs_source_output_audio(source_, &audio);
       ++emitted_audio_frames;
+
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= next_audio_debug_at) {
+        const uint64_t presented_pts = latest_presented_video_pts_us_.load();
+        const int64_t av_delta_us =
+            presented_pts > 0
+                ? frame_pts - static_cast<int64_t>(presented_pts)
+                : 0;
+        blog(LOG_INFO,
+             "[obs-scrcpy-source] audio sync: A/V PTS delta=%+.1f ms, target delay=%d ms, timeline=shared-device-PTS, skipped=%llu, emitted=%llu",
+             static_cast<double>(av_delta_us) / 1000.0,
+             settings_.audio_buffer_ms,
+             static_cast<unsigned long long>(skipped_audio_packets),
+             static_cast<unsigned long long>(emitted_audio_frames));
+        next_audio_debug_at = now + std::chrono::seconds(2);
+      }
     }
   };
 

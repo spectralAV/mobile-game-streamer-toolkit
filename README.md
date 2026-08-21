@@ -5,7 +5,7 @@ Native OBS Studio input source for a read-only, headless scrcpy stream.
 Target local runtime:
 
 - OBS Studio: `C:\Program Files\obs-studio\bin\64bit\obs64.exe`
-- scrcpy: `C:\Users\rokas\Downloads\scrcpy-win64-v4.0\scrcpy.exe`
+- scrcpy: `C:\Program Files\scrcpy\4.1\scrcpy.exe`
 - Verified device: `59081FDCH002B8` / Pixel 10 Pro
 
 ## Goal
@@ -18,7 +18,7 @@ capture windows:
 
 Planned source options:
 
-- Video codec: H.264, H.265, AV1
+- Video codec: H.264, H.265, AV1, VP8, VP9
 - Video encoder override
 - Video bit rate
 - Max size and max FPS
@@ -32,7 +32,7 @@ Planned source options:
 
 ## Current status
 
-This repository contains a native OBS source plugin with a direct scrcpy 4.0 socket transport. It starts the scrcpy Android server in read-only mode, accepts the video/audio sockets through `adb reverse`, decodes packets with FFmpeg, and outputs raw frames/audio to OBS.
+This repository contains a native OBS source plugin with a direct scrcpy 4.0/4.1 socket transport. It detects the selected scrcpy package version, starts the matching Android server in read-only mode, accepts the video/audio sockets through `adb reverse`, decodes packets with FFmpeg, and outputs raw frames/audio to OBS.
 
 It also registers a separate `Apple AirPlay Source`. That source dynamically
 loads `airplay2dll.dll` from AirPlayServer, starts an embedded AirPlay receiver,
@@ -52,10 +52,13 @@ Video presentation is asynchronous and unbuffered in OBS for realtime streaming.
 The plugin keeps the live edge without breaking decoder dependencies: when
 measured lag becomes severe, it continues decoding compressed frames while
 suppressing stale presentation. Presentation resumes as soon as the socket
-backlog is drained, and the host clock is rebased so recovery cannot remain
-latched indefinitely. It does not wait for a keyframe or restart the stream.
-Video and audio share one scrcpy PTS clock for OBS sync. The configurable audio
-delay is applied when scheduling OBS audio; the default is 0 ms.
+backlog and PTS drift are drained. A multi-second clock discontinuity triggers
+a clean server reconnect instead of replaying a long stale queue. AV1 prefers
+dav1d or FFmpeg's native decoder over libaom for realtime playback.
+Video and audio retain the same device PTS timeline when submitted to OBS, so
+OBS applies one timing adjustment to both streams instead of reconciling a
+video arrival clock with a separate audio clock. The configurable audio delay
+is applied on that shared timeline; the default is 0 ms. Stale audio is dropped.
 
 The project now follows the official `obs-plugintemplate` layout:
 
@@ -80,7 +83,7 @@ Run:
    `.\scripts\install-global-plugin.ps1` from an elevated PowerShell.
 2. Restart OBS Studio.
 3. Add source: `scrcpy Device Source`.
-4. Keep `scrcpy executable` pointed at `C:\Users\rokas\Downloads\scrcpy-win64-v4.0\scrcpy.exe`.
+4. Keep `scrcpy executable` pointed at `C:\Program Files\scrcpy\4.1\scrcpy.exe`.
 5. Select a connected ADB device from the device dropdown, or leave `Auto USB device`.
 6. Use `Refresh devices` after plugging in/unplugging a phone.
 7. Pick the video/audio codec and quality settings:
@@ -95,7 +98,10 @@ The source is always read-only. It does not expose device controls.
 If an ADB transport goes stale or the phone stream drops, the source reconnects
 automatically with exponential backoff up to 60 seconds. Each attempt verifies
 the selected device before deploying the server. It does not restart the global
-ADB daemon, so another device or ADB client is not disrupted.
+ADB daemon, so another device or ADB client is not disrupted. A connected
+session that does not emit its first video frame within three seconds also
+restarts automatically, so a decoder startup stall does not require the
+**Restart Stream** button.
 
 Encoder names vary by device. Run `scrcpy --list-encoders` with your phone connected. Examples:
 

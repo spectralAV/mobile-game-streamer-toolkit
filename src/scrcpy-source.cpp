@@ -621,10 +621,10 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
                           obs_module_text("ScrcpySource.TcpipAddress"),
                           OBS_TEXT_DEFAULT);
 
-  const char *video_codecs[] = {"h264", "h265", "av1"};
+  const char *video_codecs[] = {"h264", "h265", "av1", "vp8", "vp9"};
   add_codec_list(props, "video_codec",
                  obs_module_text("ScrcpySource.VideoCodec"), video_codecs,
-                 3);
+                 5);
   obs_property_t *video_encoder =
       obs_properties_add_list(props, "video_encoder",
                               obs_module_text("ScrcpySource.VideoEncoder"),
