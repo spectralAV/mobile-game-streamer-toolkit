@@ -56,6 +56,8 @@ constexpr uint32_t kCodecFlac = 0x666c6163;
 constexpr uint32_t kCodecRaw = 0x00726177;
 constexpr int kCvBridgeRealtimeMaxFps = 10;
 constexpr int kCvBridgeMaxWidth = 4096;
+constexpr int kMaxVideoDimension = 8192;
+constexpr uint64_t kMaxFramePixelCount = 64ull * 1024ull * 1024ull;
 
 std::once_flag wsa_once;
 
@@ -428,6 +430,50 @@ bool frame_uses_three_planes(const AVFrame *frame)
          frame->format == AV_PIX_FMT_YUV420P10LE;
 }
 
+bool is_valid_frame_geometry(int width, int height)
+{
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+  if (width > kMaxVideoDimension || height > kMaxVideoDimension) {
+    return false;
+  }
+  const uint64_t pixels = static_cast<uint64_t>(width) *
+                          static_cast<uint64_t>(height);
+  return pixels > 0 && pixels <= kMaxFramePixelCount;
+}
+
+bool has_valid_planes(const AVFrame *frame, bool three_planes)
+{
+  if (!frame) {
+    return false;
+  }
+  if (!frame->data[0] || frame->linesize[0] <= 0) {
+    return false;
+  }
+  if (!frame->data[1] || frame->linesize[1] <= 0) {
+    return false;
+  }
+  if (three_planes && (!frame->data[2] || frame->linesize[2] <= 0)) {
+    return false;
+  }
+  return true;
+}
+
+void log_dropped_frame(const char *reason, const AVFrame *frame)
+{
+  static uint32_t dropped = 0;
+  if (++dropped <= 8 || (dropped % 64 == 0)) {
+    const int width = frame ? frame->width : 0;
+    const int height = frame ? frame->height : 0;
+    const int format = frame ? frame->format : AV_PIX_FMT_NONE;
+    const char *format_name = av_get_pix_fmt_name(static_cast<AVPixelFormat>(format));
+    blog(LOG_WARNING,
+         "[obs-scrcpy-source] dropping invalid video frame (%s): %ux%u format=%s",
+         reason, width, height, format_name ? format_name : "unknown");
+  }
+}
+
 void fill_obs_frame_metadata(obs_source_frame &obs_frame, const AVFrame *frame,
                              enum video_format format, uint64_t timestamp_ns)
 {
@@ -445,6 +491,15 @@ void fill_obs_frame_metadata(obs_source_frame &obs_frame, const AVFrame *frame,
 void output_direct_obs_frame(obs_source_t *source, const AVFrame *frame,
                              enum video_format format, uint64_t timestamp_ns)
 {
+  if (!frame) {
+    return;
+  }
+  if (!is_valid_frame_geometry(frame->width, frame->height) ||
+      !has_valid_planes(frame, frame_uses_three_planes(frame))) {
+    log_dropped_frame("invalid dimensions or planes", frame);
+    return;
+  }
+
   obs_source_frame obs_frame = {};
   fill_obs_frame_metadata(obs_frame, frame, format, timestamp_ns);
   obs_frame.data[0] = frame->data[0];
@@ -461,6 +516,9 @@ void output_direct_obs_frame(obs_source_t *source, const AVFrame *frame,
 bool output_downsampled_10bit_frame(obs_source_t *source, const AVFrame *frame,
                                     uint64_t timestamp_ns)
 {
+  if (!frame) {
+    return false;
+  }
   if (frame->format != AV_PIX_FMT_YUV420P10LE &&
       frame->format != AV_PIX_FMT_P010LE) {
     return false;
@@ -468,8 +526,22 @@ bool output_downsampled_10bit_frame(obs_source_t *source, const AVFrame *frame,
 
   const int width = frame->width;
   const int height = frame->height;
+  if (!is_valid_frame_geometry(width, height) ||
+      !has_valid_planes(frame, frame->format == AV_PIX_FMT_YUV420P10LE)) {
+    log_dropped_frame("10-bit conversion guard failed", frame);
+    return false;
+  }
+
   const int chroma_width = (width + 1) / 2;
   const int chroma_height = (height + 1) / 2;
+  const uint64_t y_pixels = static_cast<uint64_t>(width) * height;
+  const uint64_t chroma_pixels =
+      static_cast<uint64_t>(chroma_width) * chroma_height;
+  if (chroma_pixels == 0 || y_pixels > kMaxFramePixelCount ||
+      chroma_pixels > kMaxFramePixelCount) {
+    log_dropped_frame("10-bit conversion guard failed", frame);
+    return false;
+  }
   static thread_local std::vector<uint8_t> y;
   static thread_local std::vector<uint8_t> u;
   static thread_local std::vector<uint8_t> v;
@@ -528,6 +600,9 @@ bool output_downsampled_10bit_frame(obs_source_t *source, const AVFrame *frame,
 bool output_obs_video_frame(obs_source_t *source, const AVFrame *frame,
                             uint64_t timestamp_ns)
 {
+  if (!frame) {
+    return false;
+  }
   enum video_format obs_format = VIDEO_FORMAT_NONE;
   if (obs_format_for_frame(frame, obs_format)) {
     output_direct_obs_frame(source, frame, obs_format, timestamp_ns);
@@ -1237,15 +1312,24 @@ void ScrcpyRuntime::video_loop()
     return;
   }
 
-  uint32_t session_width = read_be32(header.data() + 4);
-  uint32_t session_height = read_be32(header.data() + 8);
-  width_ = session_width;
-  height_ = session_height;
-
   AVCodecContext *ctx = avcodec_alloc_context3(codec);
   if (!ctx) {
     return;
   }
+
+  uint32_t session_width = read_be32(header.data() + 4);
+  uint32_t session_height = read_be32(header.data() + 8);
+  if (!is_valid_frame_geometry(static_cast<int>(session_width),
+                               static_cast<int>(session_height))) {
+    blog(LOG_WARNING,
+         "[obs-scrcpy-source] invalid initial video session dimensions: %ux%u",
+         session_width, session_height);
+    avcodec_free_context(&ctx);
+    return;
+  }
+  width_ = session_width;
+  height_ = session_height;
+
   configure_software_decoder(ctx, session_width, session_height);
   AVPixelFormat hardware_format = AV_PIX_FMT_NONE;
   bool hardware_decode = configure_d3d11va_decoder(ctx, codec, hardware_format);
@@ -1451,8 +1535,31 @@ void ScrcpyRuntime::video_loop()
 
     uint64_t pts_flags = read_be64(header.data());
     if (pts_flags & kPacketFlagSession) {
-      width_ = read_be32(header.data() + 4);
-      height_ = read_be32(header.data() + 8);
+      const uint32_t session_width = read_be32(header.data() + 4);
+      const uint32_t session_height = read_be32(header.data() + 8);
+      if (!is_valid_frame_geometry(static_cast<int>(session_width),
+                                   static_cast<int>(session_height))) {
+        log_dropped_frame("invalid session dimensions", nullptr);
+        continue;
+      }
+      if (width_.load() != session_width || height_.load() != session_height) {
+        blog(LOG_INFO,
+             "[obs-scrcpy-source] video session update: %ux%u -> %ux%u",
+             width_.load(), height_.load(), session_width, session_height);
+        width_ = session_width;
+        height_ = session_height;
+        avcodec_flush_buffers(ctx);
+        have_pts_baseline = false;
+        first_pts = 0;
+        latest_video_pts_us_.store(0);
+        latest_presented_video_pts_us_.store(0);
+        next_diagnostics_at = std::chrono::steady_clock::now() +
+                              std::chrono::seconds(2);
+        logged_first_frame = false;
+      } else {
+        width_ = session_width;
+        height_ = session_height;
+      }
       continue;
     }
 
