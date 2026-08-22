@@ -450,6 +450,8 @@ ScrcpySettings read_settings(obs_data_t *data)
   settings.encoder_refresh_minutes = std::clamp(
       static_cast<int32_t>(obs_data_get_int(data, "encoder_refresh_minutes")),
       0, 60);
+  settings.show_disconnected_frame =
+      obs_data_get_bool(data, "show_disconnected_frame");
 
   settings.audio_codec =
       obs_data_get_string_or_default(data, "audio_codec", "opus");
@@ -503,6 +505,9 @@ void ScrcpySource::update(obs_data_t *settings)
                               " cv_bridge_width=" +
                               std::to_string(next_settings.cv_bridge_max_width)
                         : " cv_bridge=off";
+    next_command += next_settings.show_disconnected_frame
+                        ? " disconnected_frame=on"
+                        : " disconnected_frame=off";
     changed = next_command != last_command_;
     settings_ = next_settings;
     last_command_ = next_command;
@@ -567,6 +572,7 @@ void scrcpy_source_get_defaults(obs_data_t *settings)
   obs_data_set_default_int(settings, "max_size", 0);
   obs_data_set_default_int(settings, "max_fps", 60);
   obs_data_set_default_int(settings, "encoder_refresh_minutes", 0);
+  obs_data_set_default_bool(settings, "show_disconnected_frame", true);
   obs_data_set_default_string(settings, "audio_codec", "opus");
   obs_data_set_default_string(settings, "audio_bit_rate", "128K");
   obs_data_set_default_int(settings, "audio_buffer_ms", 0);
@@ -651,6 +657,9 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
   obs_properties_add_int(
       props, "encoder_refresh_minutes",
       obs_module_text("ScrcpySource.EncoderRefreshMinutes"), 0, 60, 1);
+  obs_properties_add_bool(
+      props, "show_disconnected_frame",
+      obs_module_text("ScrcpySource.ShowDisconnectedFrame"));
 
   const char *audio_codecs[] = {"opus", "aac", "flac", "raw"};
   add_codec_list(props, "audio_codec",

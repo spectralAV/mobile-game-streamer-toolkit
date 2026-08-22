@@ -41,6 +41,7 @@ target_sources(
     src/airplay-source.cpp
     src/airplay-video-format.cpp
     src/scrcpy-command.cpp
+    src/scrcpy-disconnected-frame.cpp
     src/scrcpy-low-latency.cpp
     src/scrcpy-runtime.cpp
     src/scrcpy-settings.cpp
@@ -50,6 +51,7 @@ target_sources(
     src/airplay-source.h
     src/airplay-video-format.h
     src/scrcpy-command.h
+    src/scrcpy-disconnected-frame.h
     src/scrcpy-low-latency.h
     src/scrcpy-runtime.h
     src/scrcpy-settings.h
@@ -80,6 +82,17 @@ if(BUILD_TESTING)
   )
   target_include_directories(scrcpy-command-test PRIVATE src)
   add_test(NAME scrcpy-command-test COMMAND scrcpy-command-test)
+
+  add_executable(
+    scrcpy-disconnected-frame-test
+    tests/scrcpy-disconnected-frame-test.cpp
+    src/scrcpy-disconnected-frame.cpp
+  )
+  target_include_directories(scrcpy-disconnected-frame-test PRIVATE src)
+  add_test(
+    NAME scrcpy-disconnected-frame-test
+    COMMAND scrcpy-disconnected-frame-test
+  )
 
   add_executable(
     scrcpy-low-latency-test

@@ -44,6 +44,7 @@ private:
   void audio_loop();
   void queue_bridge_frame(const AVFrame *frame);
   void bridge_loop();
+  void output_disconnected_frame();
 
   obs_source_t *source_ = nullptr;
   ScrcpySettings settings_;
@@ -78,4 +79,5 @@ private:
   std::atomic<uint64_t> latest_video_pts_us_{0};
   std::atomic<uint64_t> latest_presented_video_pts_us_{0};
   std::atomic<uint64_t> first_video_frame_at_ns_{0};
+  std::atomic<bool> disconnected_frame_visible_{false};
 };

@@ -21,6 +21,7 @@ struct ScrcpySettings {
   int32_t max_fps = 60;
   std::string video_codec_options;
   int32_t encoder_refresh_minutes = 0;
+  bool show_disconnected_frame = true;
 
   std::string audio_codec = "opus";
   std::string audio_encoder;

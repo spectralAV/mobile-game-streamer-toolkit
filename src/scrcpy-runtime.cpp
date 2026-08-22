@@ -1,6 +1,7 @@
 #include "scrcpy-runtime.h"
 
 #include "scrcpy-command.h"
+#include "scrcpy-disconnected-frame.h"
 #include "scrcpy-low-latency.h"
 
 #include <media-io/video-io.h>
@@ -1011,6 +1012,12 @@ void ScrcpyRuntime::start(const ScrcpySettings &settings) {
   last_bridge_frame_at_ = {};
   latest_video_pts_us_ = 0;
   latest_presented_video_pts_us_ = 0;
+  disconnected_frame_visible_ = false;
+  if (settings_.show_disconnected_frame) {
+    output_disconnected_frame();
+  } else {
+    obs_source_output_video(source_, nullptr);
+  }
   if (settings_.cv_bridge_enabled) {
     bridge_thread_ = std::thread(&ScrcpyRuntime::bridge_loop, this);
     SetThreadPriority(static_cast<HANDLE>(bridge_thread_.native_handle()),
@@ -1053,6 +1060,43 @@ void ScrcpyRuntime::stop() {
 uint32_t ScrcpyRuntime::width() const { return width_.load(); }
 
 uint32_t ScrcpyRuntime::height() const { return height_.load(); }
+
+void ScrcpyRuntime::output_disconnected_frame() {
+  if (stopping_ || !settings_.show_disconnected_frame) {
+    return;
+  }
+
+  bool expected = false;
+  if (!disconnected_frame_visible_.compare_exchange_strong(expected, true)) {
+    return;
+  }
+
+  ScrcpyDisconnectedFrame disconnected =
+      make_scrcpy_disconnected_frame(width_.load(), height_.load());
+  if (disconnected.bgra.empty()) {
+    disconnected_frame_visible_ = false;
+    blog(LOG_WARNING,
+         "[obs-scrcpy-source] could not create disconnected frame for %ux%u",
+         width_.load(), height_.load());
+    return;
+  }
+
+  obs_source_frame frame = {};
+  frame.data[0] = disconnected.bgra.data();
+  frame.linesize[0] = disconnected.stride;
+  frame.width = disconnected.width;
+  frame.height = disconnected.height;
+  frame.timestamp = os_gettime_ns();
+  frame.format = VIDEO_FORMAT_BGRA;
+  frame.full_range = true;
+  video_format_get_parameters_for_format(
+      VIDEO_CS_SRGB, VIDEO_RANGE_FULL, frame.format, frame.color_matrix,
+      frame.color_range_min, frame.color_range_max);
+  obs_source_output_video(source_, &frame);
+  blog(LOG_INFO,
+       "[obs-scrcpy-source] showing device disconnected frame at %ux%u",
+       disconnected.width, disconnected.height);
+}
 
 void ScrcpyRuntime::run() {
   ensure_winsock();
@@ -1098,6 +1142,8 @@ void ScrcpyRuntime::run() {
     if (stopping_) {
       break;
     }
+
+    output_disconnected_frame();
 
     ++retry_count;
     const auto delay =
@@ -1521,6 +1567,7 @@ void ScrcpyRuntime::video_loop() {
       return false;
     }
     if (output_obs_video_frame(source_, output_frame, timestamp_ns)) {
+      disconnected_frame_visible_ = false;
       if (first_video_frame_at_ns_.load() == 0) {
         first_video_frame_at_ns_.store(os_gettime_ns());
       }
@@ -1894,7 +1941,11 @@ void ScrcpyRuntime::video_loop() {
     av_packet_unref(packet);
   }
 
-  obs_source_output_video(source_, nullptr);
+  if (!stopping_ && settings_.show_disconnected_frame) {
+    output_disconnected_frame();
+  } else {
+    obs_source_output_video(source_, nullptr);
+  }
   av_packet_free(&packet);
   av_frame_free(&software_frame);
   av_frame_free(&frame);
