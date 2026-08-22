@@ -5,8 +5,7 @@
 
 namespace {
 
-void expect(bool condition, const char *description)
-{
+void expect(bool condition, const char *description) {
   if (condition) {
     return;
   }
@@ -16,8 +15,7 @@ void expect(bool condition, const char *description)
 
 } // namespace
 
-int main()
-{
+int main() {
   expect(normalize_scrcpy_scid(0xffffffffu) == 0x7fffffffu,
          "scrcpy session IDs stay within signed 31-bit range");
   expect(normalize_scrcpy_scid(0x12345678u) == 0x12345678u,
@@ -25,20 +23,19 @@ int main()
 
   expect(scrcpy_reconnect_delay_ms(0) == 0,
          "no reconnect attempt has no delay");
-  expect(scrcpy_reconnect_delay_ms(1) == 750,
-         "the first reconnect is prompt");
+  expect(scrcpy_reconnect_delay_ms(1) == 750, "the first reconnect is prompt");
   expect(scrcpy_reconnect_delay_ms(4) == 6000,
          "reconnect delay backs off exponentially");
   expect(scrcpy_reconnect_delay_ms(20) == 60000,
          "reconnect delay is capped at one minute");
 
   constexpr uint64_t session_started_ns = 1'000'000'000;
-  expect(!scrcpy_first_video_frame_timed_out(
-             session_started_ns +
-                 static_cast<uint64_t>(kFirstVideoFrameTimeoutMs - 1) *
-                     1'000'000,
-             session_started_ns, 0),
-         "the first-frame watchdog allows normal decoder startup");
+  expect(
+      !scrcpy_first_video_frame_timed_out(
+          session_started_ns +
+              static_cast<uint64_t>(kFirstVideoFrameTimeoutMs - 1) * 1'000'000,
+          session_started_ns, 0),
+      "the first-frame watchdog allows normal decoder startup");
   expect(scrcpy_first_video_frame_timed_out(
              session_started_ns +
                  static_cast<uint64_t>(kFirstVideoFrameTimeoutMs) * 1'000'000,
@@ -51,8 +48,7 @@ int main()
          "an emitted first frame disables the startup watchdog");
 
   LiveEdgeVideoPolicy video_policy;
-  expect(video_policy.decide(0, 0.0) ==
-             LiveEdgeVideoAction::DecodeAndPresent,
+  expect(video_policy.decide(0, 0.0) == LiveEdgeVideoAction::DecodeAndPresent,
          "caught-up video decodes and presents");
   expect(video_policy.decide(4 * 1024, 80.0) ==
              LiveEdgeVideoAction::DecodeAndPresent,
@@ -60,8 +56,7 @@ int main()
   expect(video_policy.decide(0, 150.0) ==
              LiveEdgeVideoAction::DecodeWithoutPresent,
          "measured video lag suppresses stale presentation");
-  expect(video_policy.decide(0, 40.0) ==
-              LiveEdgeVideoAction::DecodeAndPresent,
+  expect(video_policy.decide(0, 40.0) == LiveEdgeVideoAction::DecodeAndPresent,
          "drained video resumes after PTS catches up");
   expect(video_policy.take_clock_rebase_request(),
          "resuming presentation requests a PTS clock rebase");
@@ -72,24 +67,25 @@ int main()
   expect(socket_policy.decide(1024 * 1024, 80.0) ==
              LiveEdgeVideoAction::DecodeWithoutPresent,
          "large socket backlog plus PTS lag suppresses stale presentation");
-  expect(socket_policy.decide(0, 0.0) ==
-             LiveEdgeVideoAction::DecodeAndPresent,
+  expect(socket_policy.decide(0, 0.0) == LiveEdgeVideoAction::DecodeAndPresent,
          "empty socket backlog resumes presentation");
 
   LiveEdgeVideoPolicy discontinuity_policy;
   expect(discontinuity_policy.decide(0, 1500.0) ==
-             LiveEdgeVideoAction::RestartStream,
-         "multi-second stale video requests a clean live-edge restart");
+             LiveEdgeVideoAction::RebaseClock,
+         "multi-second stale video requests an in-place clock rebase");
+  expect(discontinuity_policy.take_clock_rebase_request(),
+         "a stale-video discontinuity requests clock rebasing");
   expect(discontinuity_policy.decide(0, -1500.0) ==
-             LiveEdgeVideoAction::RestartStream,
-         "a forward PTS discontinuity requests a clean restart");
+             LiveEdgeVideoAction::RebaseClock,
+         "a forward PTS discontinuity rebases without restarting the stream");
 
   expect(live_edge_audio_action(260 * 1000, 200 * 1000, 0) ==
              LiveEdgeAudioAction::Decode,
          "audio ahead of presented video is kept for smooth playback");
   expect(live_edge_audio_action(5000 * 1000, 200 * 1000, 0) ==
-             LiveEdgeAudioAction::Decode,
-         "far-ahead audio is kept on the shared device PTS timeline");
+             LiveEdgeAudioAction::SkipPayload,
+         "far-ahead audio is held while video recovers");
   expect(live_edge_audio_action(0, 200 * 1000, 0) ==
              LiveEdgeAudioAction::SkipPayload,
          "stale audio is skipped using cross-stream PTS");
@@ -97,8 +93,9 @@ int main()
              LiveEdgeAudioAction::Decode,
          "audio near the presented video edge is kept");
 
-  expect(scrcpy_media_timestamp_ns(200 * 1000, 0) == 200'000'000,
-         "device microsecond PTS converts to the shared OBS nanosecond timeline");
+  expect(
+      scrcpy_media_timestamp_ns(200 * 1000, 0) == 200'000'000,
+      "device microsecond PTS converts to the shared OBS nanosecond timeline");
   expect(scrcpy_media_timestamp_ns(200 * 1000, 50) == 250'000'000,
          "configured audio buffering offsets the shared media timeline");
   expect(scrcpy_media_timestamp_ns(200 * 1000, 500) == 300'000'000,

@@ -3,8 +3,8 @@
 #include "scrcpy-command.h"
 #include "scrcpy-low-latency.h"
 
-#include <obs-module.h>
 #include <media-io/video-io.h>
+#include <obs-module.h>
 #include <util/platform.h>
 
 #include <algorithm>
@@ -20,12 +20,13 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <windows.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavutil/buffer.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
@@ -61,26 +62,18 @@ constexpr uint64_t kMaxFramePixelCount = 64ull * 1024ull * 1024ull;
 
 std::once_flag wsa_once;
 
-void ensure_winsock()
-{
+void ensure_winsock() {
   std::call_once(wsa_once, [] {
     WSADATA data;
     WSAStartup(MAKEWORD(2, 2), &data);
   });
 }
 
-SOCKET as_socket(uintptr_t value)
-{
-  return static_cast<SOCKET>(value);
-}
+SOCKET as_socket(uintptr_t value) { return static_cast<SOCKET>(value); }
 
-uintptr_t as_uintptr(SOCKET socket)
-{
-  return static_cast<uintptr_t>(socket);
-}
+uintptr_t as_uintptr(SOCKET socket) { return static_cast<uintptr_t>(socket); }
 
-void close_socket(uintptr_t &socket_value)
-{
+void close_socket(uintptr_t &socket_value) {
   if (socket_value != kInvalidSocket) {
     SOCKET socket = as_socket(socket_value);
     shutdown(socket, SD_BOTH);
@@ -89,8 +82,7 @@ void close_socket(uintptr_t &socket_value)
   }
 }
 
-std::string quote_arg(const std::string &arg)
-{
+std::string quote_arg(const std::string &arg) {
   if (arg.find_first_of(" \t\"") == std::string::npos) {
     return arg;
   }
@@ -107,8 +99,7 @@ std::string quote_arg(const std::string &arg)
   return out;
 }
 
-std::string join_command(const std::vector<std::string> &args)
-{
+std::string join_command(const std::vector<std::string> &args) {
   std::ostringstream out;
   for (size_t i = 0; i < args.size(); ++i) {
     if (i) {
@@ -119,8 +110,7 @@ std::string join_command(const std::vector<std::string> &args)
   return out.str();
 }
 
-std::string scrcpy_dir_from_path(const std::string &scrcpy_path)
-{
+std::string scrcpy_dir_from_path(const std::string &scrcpy_path) {
   size_t slash = scrcpy_path.find_last_of("/\\");
   if (slash == std::string::npos) {
     return ".";
@@ -128,28 +118,24 @@ std::string scrcpy_dir_from_path(const std::string &scrcpy_path)
   return scrcpy_path.substr(0, slash);
 }
 
-std::string to_windows_path(std::string path)
-{
+std::string to_windows_path(std::string path) {
   std::replace(path.begin(), path.end(), '/', '\\');
   return path;
 }
 
-std::string adb_path(const ScrcpySettings &settings)
-{
+std::string adb_path(const ScrcpySettings &settings) {
   std::string scrcpy_path =
       settings.scrcpy_path.empty() ? kDefaultScrcpyPath : settings.scrcpy_path;
   return to_windows_path(scrcpy_dir_from_path(scrcpy_path) + "\\adb.exe");
 }
 
-std::string server_path(const ScrcpySettings &settings)
-{
+std::string server_path(const ScrcpySettings &settings) {
   std::string scrcpy_path =
       settings.scrcpy_path.empty() ? kDefaultScrcpyPath : settings.scrcpy_path;
   return to_windows_path(scrcpy_dir_from_path(scrcpy_path) + "\\scrcpy-server");
 }
 
-std::string detect_scrcpy_server_version(const ScrcpySettings &settings)
-{
+std::string detect_scrcpy_server_version(const ScrcpySettings &settings) {
   const std::string scrcpy_path =
       settings.scrcpy_path.empty() ? kDefaultScrcpyPath : settings.scrcpy_path;
   const std::string command = quote_arg(scrcpy_path) + " --version 2>&1";
@@ -171,8 +157,7 @@ std::string detect_scrcpy_server_version(const ScrcpySettings &settings)
 }
 
 bool run_process_wait(const std::vector<std::string> &args, DWORD *exit_code,
-                      DWORD timeout_ms = 10000)
-{
+                      DWORD timeout_ms = 10000) {
   std::string command = join_command(args);
   std::vector<char> mutable_command(command.begin(), command.end());
   mutable_command.push_back('\0');
@@ -204,8 +189,7 @@ bool run_process_wait(const std::vector<std::string> &args, DWORD *exit_code,
   return true;
 }
 
-bool start_process(const std::vector<std::string> &args, HANDLE *process)
-{
+bool start_process(const std::vector<std::string> &args, HANDLE *process) {
   std::string command = join_command(args);
   std::vector<char> mutable_command(command.begin(), command.end());
   mutable_command.push_back('\0');
@@ -225,21 +209,18 @@ bool start_process(const std::vector<std::string> &args, HANDLE *process)
   return true;
 }
 
-uint32_t read_be32(const uint8_t *data)
-{
+uint32_t read_be32(const uint8_t *data) {
   return (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) |
          (uint32_t(data[2]) << 8) | uint32_t(data[3]);
 }
 
-uint64_t read_be64(const uint8_t *data)
-{
+uint64_t read_be64(const uint8_t *data) {
   uint64_t hi = read_be32(data);
   uint64_t lo = read_be32(data + 4);
   return (hi << 32) | lo;
 }
 
-bool recv_all(SOCKET socket, uint8_t *data, size_t len)
-{
+bool recv_all(SOCKET socket, uint8_t *data, size_t len) {
   size_t offset = 0;
   while (offset < len) {
     int r = recv(socket, reinterpret_cast<char *>(data + offset),
@@ -252,8 +233,7 @@ bool recv_all(SOCKET socket, uint8_t *data, size_t len)
   return true;
 }
 
-bool discard_socket_data(SOCKET socket, size_t len)
-{
+bool discard_socket_data(SOCKET socket, size_t len) {
   std::array<uint8_t, 65536> scratch = {};
   size_t remaining = len;
   while (remaining > 0) {
@@ -268,8 +248,7 @@ bool discard_socket_data(SOCKET socket, size_t len)
   return true;
 }
 
-bool wait_for_connection(SOCKET socket, int timeout_ms)
-{
+bool wait_for_connection(SOCKET socket, int timeout_ms) {
   fd_set read_set;
   FD_ZERO(&read_set);
   FD_SET(socket, &read_set);
@@ -281,8 +260,7 @@ bool wait_for_connection(SOCKET socket, int timeout_ms)
   return select(0, &read_set, nullptr, nullptr, &timeout) > 0;
 }
 
-uint32_t parse_bit_rate(const std::string &value, uint32_t fallback)
-{
+uint32_t parse_bit_rate(const std::string &value, uint32_t fallback) {
   if (value.empty()) {
     return fallback;
   }
@@ -308,8 +286,7 @@ uint32_t parse_bit_rate(const std::string &value, uint32_t fallback)
   return static_cast<uint32_t>(result);
 }
 
-uint32_t codec_id_for_name(const std::string &name)
-{
+uint32_t codec_id_for_name(const std::string &name) {
   if (name == "h264") {
     return kCodecH264;
   }
@@ -340,8 +317,7 @@ uint32_t codec_id_for_name(const std::string &name)
   return 0;
 }
 
-AVCodecID av_codec_for_scrcpy_id(uint32_t codec_id)
-{
+AVCodecID av_codec_for_scrcpy_id(uint32_t codec_id) {
   switch (codec_id) {
   case kCodecH264:
     return AV_CODEC_ID_H264;
@@ -366,8 +342,7 @@ AVCodecID av_codec_for_scrcpy_id(uint32_t codec_id)
   }
 }
 
-const AVCodec *find_video_decoder(uint32_t codec_id)
-{
+const AVCodec *find_video_decoder(uint32_t codec_id) {
   if (codec_id == kCodecAv1) {
     // OBS's FFmpeg registers libaom first for AV1. Prefer dav1d when bundled,
     // then the native decoder, which can expose D3D11VA and is substantially
@@ -390,8 +365,7 @@ const AVCodec *find_video_decoder(uint32_t codec_id)
   return avcodec_find_decoder(av_codec_for_scrcpy_id(codec_id));
 }
 
-enum video_colorspace obs_colorspace_for_frame(const AVFrame *frame)
-{
+enum video_colorspace obs_colorspace_for_frame(const AVFrame *frame) {
   switch (frame->colorspace) {
   case AVCOL_SPC_BT470BG:
   case AVCOL_SPC_SMPTE170M:
@@ -404,14 +378,12 @@ enum video_colorspace obs_colorspace_for_frame(const AVFrame *frame)
   }
 }
 
-enum video_range_type obs_range_for_frame(const AVFrame *frame)
-{
+enum video_range_type obs_range_for_frame(const AVFrame *frame) {
   return frame->color_range == AVCOL_RANGE_JPEG ? VIDEO_RANGE_FULL
                                                 : VIDEO_RANGE_PARTIAL;
 }
 
-bool obs_format_for_frame(const AVFrame *frame, enum video_format &format)
-{
+bool obs_format_for_frame(const AVFrame *frame, enum video_format &format) {
   switch (frame->format) {
   case AV_PIX_FMT_YUV420P:
     format = VIDEO_FORMAT_I420;
@@ -424,27 +396,24 @@ bool obs_format_for_frame(const AVFrame *frame, enum video_format &format)
   }
 }
 
-bool frame_uses_three_planes(const AVFrame *frame)
-{
+bool frame_uses_three_planes(const AVFrame *frame) {
   return frame->format == AV_PIX_FMT_YUV420P ||
          frame->format == AV_PIX_FMT_YUV420P10LE;
 }
 
-bool is_valid_frame_geometry(int width, int height)
-{
+bool is_valid_frame_geometry(int width, int height) {
   if (width <= 0 || height <= 0) {
     return false;
   }
   if (width > kMaxVideoDimension || height > kMaxVideoDimension) {
     return false;
   }
-  const uint64_t pixels = static_cast<uint64_t>(width) *
-                          static_cast<uint64_t>(height);
+  const uint64_t pixels =
+      static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
   return pixels > 0 && pixels <= kMaxFramePixelCount;
 }
 
-bool has_valid_planes(const AVFrame *frame, bool three_planes)
-{
+bool has_valid_planes(const AVFrame *frame, bool three_planes) {
   if (!frame) {
     return false;
   }
@@ -460,23 +429,177 @@ bool has_valid_planes(const AVFrame *frame, bool three_planes)
   return true;
 }
 
-void log_dropped_frame(const char *reason, const AVFrame *frame)
-{
+bool buffer_contains_span(const AVBufferRef *buffer, const uint8_t *data,
+                          size_t size) {
+  if (!buffer || !buffer->data || !data) {
+    return false;
+  }
+
+  const uintptr_t buffer_begin = reinterpret_cast<uintptr_t>(buffer->data);
+  const uintptr_t data_begin = reinterpret_cast<uintptr_t>(data);
+  if (data_begin < buffer_begin) {
+    return false;
+  }
+
+  const uintptr_t offset = data_begin - buffer_begin;
+  return offset <= buffer->size && size <= buffer->size - offset;
+}
+
+bool frame_contains_span(const AVFrame *frame, const uint8_t *data,
+                         size_t size) {
+  if (!frame || !data) {
+    return false;
+  }
+
+  for (int i = 0; i < AV_NUM_DATA_POINTERS; ++i) {
+    if (buffer_contains_span(frame->buf[i], data, size)) {
+      return true;
+    }
+  }
+  for (int i = 0; i < frame->nb_extended_buf; ++i) {
+    if (buffer_contains_span(frame->extended_buf[i], data, size)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool has_readable_plane(const AVFrame *frame, int plane, size_t row_bytes,
+                        int rows) {
+  if (!frame || plane < 0 || plane >= AV_NUM_DATA_POINTERS || rows <= 0 ||
+      row_bytes == 0 || !frame->data[plane] || frame->linesize[plane] <= 0 ||
+      static_cast<size_t>(frame->linesize[plane]) < row_bytes) {
+    return false;
+  }
+
+  const size_t stride = static_cast<size_t>(frame->linesize[plane]);
+  const size_t row_count = static_cast<size_t>(rows);
+  if (row_count - 1 > (SIZE_MAX - row_bytes) / stride) {
+    return false;
+  }
+  const size_t readable_size = (row_count - 1) * stride + row_bytes;
+  return frame_contains_span(frame, frame->data[plane], readable_size);
+}
+
+bool has_readable_8bit_layout(const AVFrame *frame, enum video_format format,
+                              int width, int height) {
+  if (!frame || width <= 0 || height <= 0) {
+    return false;
+  }
+
+  const int chroma_width = (width + 1) / 2;
+  const int chroma_height = (height + 1) / 2;
+
+  if (format == VIDEO_FORMAT_I420) {
+    return frame->format == AV_PIX_FMT_YUV420P &&
+           has_readable_plane(frame, 0, static_cast<size_t>(width), height) &&
+           has_readable_plane(frame, 1, static_cast<size_t>(chroma_width),
+                              chroma_height) &&
+           has_readable_plane(frame, 2, static_cast<size_t>(chroma_width),
+                              chroma_height);
+  }
+
+  if (format == VIDEO_FORMAT_NV12) {
+    const size_t chroma_row_bytes = static_cast<size_t>(chroma_width) * 2;
+    return frame->format == AV_PIX_FMT_NV12 &&
+           has_readable_plane(frame, 0, static_cast<size_t>(width), height) &&
+           has_readable_plane(frame, 1, chroma_row_bytes, chroma_height);
+  }
+
+  return false;
+}
+
+bool copy_frame_to_contiguous_obs_buffer(const AVFrame *frame, int width,
+                                         int height, enum video_format format,
+                                         obs_source_frame &obs_frame) {
+  if (!frame || !has_readable_8bit_layout(frame, format, width, height)) {
+    return false;
+  }
+
+  const int chroma_width = (width + 1) / 2;
+  const int chroma_height = (height + 1) / 2;
+  const size_t y_size =
+      static_cast<size_t>(width) * static_cast<size_t>(height);
+  static thread_local std::vector<uint8_t> storage;
+
+  if (format == VIDEO_FORMAT_I420) {
+    const size_t uv_size =
+        static_cast<size_t>(chroma_width) * static_cast<size_t>(chroma_height);
+    storage.resize(y_size + uv_size * 2);
+    uint8_t *const y = storage.data();
+    uint8_t *const u = y + y_size;
+    uint8_t *const v = u + uv_size;
+
+    for (int row = 0; row < height; ++row) {
+      memcpy(y + static_cast<size_t>(row) * width,
+             frame->data[0] + static_cast<size_t>(row) * frame->linesize[0],
+             width);
+    }
+    for (int row = 0; row < chroma_height; ++row) {
+      memcpy(u + static_cast<size_t>(row) * chroma_width,
+             frame->data[1] + static_cast<size_t>(row) * frame->linesize[1],
+             chroma_width);
+      memcpy(v + static_cast<size_t>(row) * chroma_width,
+             frame->data[2] + static_cast<size_t>(row) * frame->linesize[2],
+             chroma_width);
+    }
+
+    obs_frame.data[0] = y;
+    obs_frame.data[1] = u;
+    obs_frame.data[2] = v;
+    obs_frame.linesize[0] = static_cast<uint32_t>(width);
+    obs_frame.linesize[1] = static_cast<uint32_t>(chroma_width);
+    obs_frame.linesize[2] = static_cast<uint32_t>(chroma_width);
+    return true;
+  }
+
+  if (format == VIDEO_FORMAT_NV12) {
+    const size_t uv_stride = static_cast<size_t>(chroma_width) * 2;
+    const size_t uv_size = uv_stride * static_cast<size_t>(chroma_height);
+    storage.resize(y_size + uv_size);
+    uint8_t *const y = storage.data();
+    uint8_t *const uv = y + y_size;
+
+    for (int row = 0; row < height; ++row) {
+      memcpy(y + static_cast<size_t>(row) * width,
+             frame->data[0] + static_cast<size_t>(row) * frame->linesize[0],
+             width);
+    }
+    for (int row = 0; row < chroma_height; ++row) {
+      memcpy(uv + static_cast<size_t>(row) * uv_stride,
+             frame->data[1] + static_cast<size_t>(row) * frame->linesize[1],
+             uv_stride);
+    }
+
+    obs_frame.data[0] = y;
+    obs_frame.data[1] = uv;
+    obs_frame.linesize[0] = static_cast<uint32_t>(width);
+    obs_frame.linesize[1] = static_cast<uint32_t>(uv_stride);
+    obs_frame.data[2] = nullptr;
+    obs_frame.linesize[2] = 0;
+    return true;
+  }
+
+  return false;
+}
+
+void log_dropped_frame(const char *reason, const AVFrame *frame) {
   static uint32_t dropped = 0;
   if (++dropped <= 8 || (dropped % 64 == 0)) {
     const int width = frame ? frame->width : 0;
     const int height = frame ? frame->height : 0;
     const int format = frame ? frame->format : AV_PIX_FMT_NONE;
-    const char *format_name = av_get_pix_fmt_name(static_cast<AVPixelFormat>(format));
+    const char *format_name =
+        av_get_pix_fmt_name(static_cast<AVPixelFormat>(format));
     blog(LOG_WARNING,
-         "[obs-scrcpy-source] dropping invalid video frame (%s): %ux%u format=%s",
+         "[obs-scrcpy-source] dropping invalid video frame (%s): %ux%u "
+         "format=%s",
          reason, width, height, format_name ? format_name : "unknown");
   }
 }
 
 void fill_obs_frame_metadata(obs_source_frame &obs_frame, const AVFrame *frame,
-                             enum video_format format, uint64_t timestamp_ns)
-{
+                             enum video_format format, uint64_t timestamp_ns) {
   obs_frame.format = format;
   obs_frame.width = static_cast<uint32_t>(frame->width);
   obs_frame.height = static_cast<uint32_t>(frame->height);
@@ -488,34 +611,30 @@ void fill_obs_frame_metadata(obs_source_frame &obs_frame, const AVFrame *frame,
       obs_frame.color_range_max);
 }
 
-void output_direct_obs_frame(obs_source_t *source, const AVFrame *frame,
-                             enum video_format format, uint64_t timestamp_ns)
-{
+bool output_direct_obs_frame(obs_source_t *source, const AVFrame *frame,
+                             enum video_format format, uint64_t timestamp_ns) {
   if (!frame) {
-    return;
+    return false;
   }
   if (!is_valid_frame_geometry(frame->width, frame->height) ||
       !has_valid_planes(frame, frame_uses_three_planes(frame))) {
     log_dropped_frame("invalid dimensions or planes", frame);
-    return;
+    return false;
   }
 
   obs_source_frame obs_frame = {};
   fill_obs_frame_metadata(obs_frame, frame, format, timestamp_ns);
-  obs_frame.data[0] = frame->data[0];
-  obs_frame.data[1] = frame->data[1];
-  obs_frame.linesize[0] = static_cast<uint32_t>(frame->linesize[0]);
-  obs_frame.linesize[1] = static_cast<uint32_t>(frame->linesize[1]);
-  if (frame_uses_three_planes(frame)) {
-    obs_frame.data[2] = frame->data[2];
-    obs_frame.linesize[2] = static_cast<uint32_t>(frame->linesize[2]);
+  if (!copy_frame_to_contiguous_obs_buffer(frame, frame->width, frame->height,
+                                           format, obs_frame)) {
+    log_dropped_frame("invalid or truncated direct-output plane layout", frame);
+    return false;
   }
   obs_source_output_video(source, &obs_frame);
+  return true;
 }
 
 bool output_downsampled_10bit_frame(obs_source_t *source, const AVFrame *frame,
-                                    uint64_t timestamp_ns)
-{
+                                    uint64_t timestamp_ns) {
   if (!frame) {
     return false;
   }
@@ -526,14 +645,28 @@ bool output_downsampled_10bit_frame(obs_source_t *source, const AVFrame *frame,
 
   const int width = frame->width;
   const int height = frame->height;
-  if (!is_valid_frame_geometry(width, height) ||
-      !has_valid_planes(frame, frame->format == AV_PIX_FMT_YUV420P10LE)) {
+  const int chroma_width = (width + 1) / 2;
+  const int chroma_height = (height + 1) / 2;
+  const bool readable_layout =
+      frame->format == AV_PIX_FMT_P010LE
+          ? has_readable_plane(frame, 0, static_cast<size_t>(width) * 2,
+                               height) &&
+                has_readable_plane(frame, 1,
+                                   static_cast<size_t>(chroma_width) * 4,
+                                   chroma_height)
+          : has_readable_plane(frame, 0, static_cast<size_t>(width) * 2,
+                               height) &&
+                has_readable_plane(frame, 1,
+                                   static_cast<size_t>(chroma_width) * 2,
+                                   chroma_height) &&
+                has_readable_plane(frame, 2,
+                                   static_cast<size_t>(chroma_width) * 2,
+                                   chroma_height);
+  if (!is_valid_frame_geometry(width, height) || !readable_layout) {
     log_dropped_frame("10-bit conversion guard failed", frame);
     return false;
   }
 
-  const int chroma_width = (width + 1) / 2;
-  const int chroma_height = (height + 1) / 2;
   const uint64_t y_pixels = static_cast<uint64_t>(width) * height;
   const uint64_t chroma_pixels =
       static_cast<uint64_t>(chroma_width) * chroma_height;
@@ -598,21 +731,18 @@ bool output_downsampled_10bit_frame(obs_source_t *source, const AVFrame *frame,
 }
 
 bool output_obs_video_frame(obs_source_t *source, const AVFrame *frame,
-                            uint64_t timestamp_ns)
-{
+                            uint64_t timestamp_ns) {
   if (!frame) {
     return false;
   }
   enum video_format obs_format = VIDEO_FORMAT_NONE;
   if (obs_format_for_frame(frame, obs_format)) {
-    output_direct_obs_frame(source, frame, obs_format, timestamp_ns);
-    return true;
+    return output_direct_obs_frame(source, frame, obs_format, timestamp_ns);
   }
   return output_downsampled_10bit_frame(source, frame, timestamp_ns);
 }
 
-uint8_t read_luma8(const AVFrame *frame, int x, int y)
-{
+uint8_t read_luma8(const AVFrame *frame, int x, int y) {
   const uint8_t *row = frame->data[0] + y * frame->linesize[0];
   if (frame->format == AV_PIX_FMT_YUV420P10LE) {
     const uint16_t sample = reinterpret_cast<const uint16_t *>(row)[x];
@@ -625,8 +755,7 @@ uint8_t read_luma8(const AVFrame *frame, int x, int y)
   return row[x];
 }
 
-void read_chroma8(const AVFrame *frame, int x, int y, int &u, int &v)
-{
+void read_chroma8(const AVFrame *frame, int x, int y, int &u, int &v) {
   if (frame->format == AV_PIX_FMT_NV12) {
     const int chroma_offset = (y / 2) * frame->linesize[1] + (x / 2) * 2;
     u = frame->data[1][chroma_offset];
@@ -643,26 +772,24 @@ void read_chroma8(const AVFrame *frame, int x, int y, int &u, int &v)
   if (frame->format == AV_PIX_FMT_YUV420P10LE) {
     const uint8_t *u_row = frame->data[1] + (y / 2) * frame->linesize[1];
     const uint8_t *v_row = frame->data[2] + (y / 2) * frame->linesize[2];
-    u = static_cast<uint8_t>(
-        std::min<int>(255, reinterpret_cast<const uint16_t *>(u_row)[x / 2] >> 2));
-    v = static_cast<uint8_t>(
-        std::min<int>(255, reinterpret_cast<const uint16_t *>(v_row)[x / 2] >> 2));
+    u = static_cast<uint8_t>(std::min<int>(
+        255, reinterpret_cast<const uint16_t *>(u_row)[x / 2] >> 2));
+    v = static_cast<uint8_t>(std::min<int>(
+        255, reinterpret_cast<const uint16_t *>(v_row)[x / 2] >> 2));
     return;
   }
   u = frame->data[1][(y / 2) * frame->linesize[1] + x / 2];
   v = frame->data[2][(y / 2) * frame->linesize[2] + x / 2];
 }
 
-std::string av_error(int code)
-{
+std::string av_error(int code) {
   std::array<char, AV_ERROR_MAX_STRING_SIZE> buffer = {};
   av_strerror(code, buffer.data(), buffer.size());
   return buffer.data();
 }
 
 AVPixelFormat hardware_pixel_format(const AVCodec *codec,
-                                    AVHWDeviceType device_type)
-{
+                                    AVHWDeviceType device_type) {
   for (int index = 0;; ++index) {
     const AVCodecHWConfig *config = avcodec_get_hw_config(codec, index);
     if (!config) {
@@ -676,8 +803,7 @@ AVPixelFormat hardware_pixel_format(const AVCodec *codec,
 }
 
 AVPixelFormat select_hardware_pixel_format(AVCodecContext *ctx,
-                                           const AVPixelFormat *formats)
-{
+                                           const AVPixelFormat *formats) {
   const auto *desired = static_cast<const AVPixelFormat *>(ctx->opaque);
   if (desired) {
     for (const AVPixelFormat *format = formats; *format != AV_PIX_FMT_NONE;
@@ -691,8 +817,7 @@ AVPixelFormat select_hardware_pixel_format(AVCodecContext *ctx,
 }
 
 void configure_software_decoder(AVCodecContext *ctx, uint32_t width,
-                                uint32_t height)
-{
+                                uint32_t height) {
   ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
   ctx->flags2 |= AV_CODEC_FLAG2_FAST;
   ctx->thread_count = 0;
@@ -703,19 +828,18 @@ void configure_software_decoder(AVCodecContext *ctx, uint32_t width,
 }
 
 bool configure_d3d11va_decoder(AVCodecContext *ctx, const AVCodec *codec,
-                               AVPixelFormat &hardware_format)
-{
+                               AVPixelFormat &hardware_format) {
   hardware_format = hardware_pixel_format(codec, AV_HWDEVICE_TYPE_D3D11VA);
   if (hardware_format == AV_PIX_FMT_NONE) {
     return false;
   }
 
-  const int ret = av_hwdevice_ctx_create(&ctx->hw_device_ctx,
-                                         AV_HWDEVICE_TYPE_D3D11VA, nullptr,
-                                         nullptr, 0);
+  const int ret = av_hwdevice_ctx_create(
+      &ctx->hw_device_ctx, AV_HWDEVICE_TYPE_D3D11VA, nullptr, nullptr, 0);
   if (ret < 0) {
     blog(LOG_WARNING,
-         "[obs-scrcpy-source] D3D11VA device unavailable, using software decode: %s",
+         "[obs-scrcpy-source] D3D11VA device unavailable, using software "
+         "decode: %s",
          av_error(ret).c_str());
     hardware_format = AV_PIX_FMT_NONE;
     return false;
@@ -726,29 +850,64 @@ bool configure_d3d11va_decoder(AVCodecContext *ctx, const AVCodec *codec,
   return true;
 }
 
+AVCodecContext *create_video_decoder_context(const AVCodec *codec,
+                                             uint32_t width, uint32_t height,
+                                             bool &hardware_decode,
+                                             AVPixelFormat &hardware_format) {
+  AVCodecContext *ctx = avcodec_alloc_context3(codec);
+  if (!ctx) {
+    return nullptr;
+  }
+
+  configure_software_decoder(ctx, width, height);
+  hardware_format = AV_PIX_FMT_NONE;
+  hardware_decode = configure_d3d11va_decoder(ctx, codec, hardware_format);
+
+  int ret = avcodec_open2(ctx, codec, nullptr);
+  if (ret < 0 && hardware_decode) {
+    blog(LOG_WARNING,
+         "[obs-scrcpy-source] D3D11VA decoder open failed, using software "
+         "decode: %s",
+         av_error(ret).c_str());
+    avcodec_free_context(&ctx);
+    ctx = avcodec_alloc_context3(codec);
+    if (!ctx) {
+      return nullptr;
+    }
+    configure_software_decoder(ctx, width, height);
+    hardware_decode = false;
+    hardware_format = AV_PIX_FMT_NONE;
+    ret = avcodec_open2(ctx, codec, nullptr);
+  }
+
+  if (ret < 0) {
+    blog(LOG_ERROR, "[obs-scrcpy-source] could not open video decoder: %s",
+         av_error(ret).c_str());
+    avcodec_free_context(&ctx);
+    return nullptr;
+  }
+  return ctx;
+}
+
 void append_if_value(std::vector<std::string> &args, const char *key,
-                     const std::string &value)
-{
+                     const std::string &value) {
   if (!value.empty()) {
     args.push_back(std::string(key) + "=" + value);
   }
 }
 
-uint8_t clamp_color(int value)
-{
+uint8_t clamp_color(int value) {
   return static_cast<uint8_t>(std::clamp(value, 0, 255));
 }
 
 std::vector<uint8_t> make_bridge_bgra(const AVFrame *frame, int max_width,
-                                      int &target_width, int &target_height)
-{
+                                      int &target_width, int &target_height) {
   const int source_width = frame->width;
   const int source_height = frame->height;
   target_width = max_width <= 0
                      ? source_width
                      : std::min(source_width, std::max(320, max_width));
-  target_height =
-      std::max(1, source_height * target_width / source_width);
+  target_height = std::max(1, source_height * target_width / source_width);
   const size_t pixel_bytes =
       static_cast<size_t>(target_width) * target_height * 4;
   std::vector<uint8_t> bgra(pixel_bytes, 0);
@@ -766,8 +925,7 @@ std::vector<uint8_t> make_bridge_bgra(const AVFrame *frame, int max_width,
       const int d = u - 128;
       const int e = v - 128;
       const uint8_t r = clamp_color((298 * c + 409 * e + 128) >> 8);
-      const uint8_t g =
-          clamp_color((298 * c - 100 * d - 208 * e + 128) >> 8);
+      const uint8_t g = clamp_color((298 * c - 100 * d - 208 * e + 128) >> 8);
       const uint8_t b = clamp_color((298 * c + 516 * d + 128) >> 8);
       const size_t target = (static_cast<size_t>(y) * target_width + x) * 4;
       bgra[target] = b;
@@ -780,8 +938,7 @@ std::vector<uint8_t> make_bridge_bgra(const AVFrame *frame, int max_width,
   return bgra;
 }
 
-bool send_all(SOCKET socket, const uint8_t *data, size_t length)
-{
+bool send_all(SOCKET socket, const uint8_t *data, size_t length) {
   size_t sent = 0;
   while (sent < length) {
     const int chunk = send(socket, reinterpret_cast<const char *>(data + sent),
@@ -795,8 +952,7 @@ bool send_all(SOCKET socket, const uint8_t *data, size_t length)
 }
 
 bool post_bridge_raw_frame(const std::vector<uint8_t> &frame, int width,
-                           int height)
-{
+                           int height) {
   SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (socket == INVALID_SOCKET) {
     return false;
@@ -843,13 +999,9 @@ bool post_bridge_raw_frame(const std::vector<uint8_t> &frame, int width,
 
 ScrcpyRuntime::ScrcpyRuntime(obs_source_t *source) : source_(source) {}
 
-ScrcpyRuntime::~ScrcpyRuntime()
-{
-  stop();
-}
+ScrcpyRuntime::~ScrcpyRuntime() { stop(); }
 
-void ScrcpyRuntime::start(const ScrcpySettings &settings)
-{
+void ScrcpyRuntime::start(const ScrcpySettings &settings) {
   stop();
   settings_ = settings;
   server_version_.clear();
@@ -867,8 +1019,7 @@ void ScrcpyRuntime::start(const ScrcpySettings &settings)
   worker_ = std::thread(&ScrcpyRuntime::run, this);
 }
 
-void ScrcpyRuntime::stop()
-{
+void ScrcpyRuntime::stop() {
   stopping_ = true;
   bridge_condition_.notify_all();
 
@@ -899,18 +1050,11 @@ void ScrcpyRuntime::stop()
   cleanup();
 }
 
-uint32_t ScrcpyRuntime::width() const
-{
-  return width_.load();
-}
+uint32_t ScrcpyRuntime::width() const { return width_.load(); }
 
-uint32_t ScrcpyRuntime::height() const
-{
-  return height_.load();
-}
+uint32_t ScrcpyRuntime::height() const { return height_.load(); }
 
-void ScrcpyRuntime::run()
-{
+void ScrcpyRuntime::run() {
   ensure_winsock();
 
   unsigned int retry_count = 0;
@@ -921,8 +1065,8 @@ void ScrcpyRuntime::run()
       const uint64_t video_session_started_ns = os_gettime_ns();
       while (!stopping_) {
         if (video_stream_ended_) {
-          blog(LOG_WARNING,
-               "[obs-scrcpy-source] video stream ended; reconnecting automatically");
+          blog(LOG_WARNING, "[obs-scrcpy-source] video stream ended; "
+                            "reconnecting automatically");
           break;
         }
 
@@ -930,18 +1074,18 @@ void ScrcpyRuntime::run()
                 os_gettime_ns(), video_session_started_ns,
                 first_video_frame_at_ns_.load())) {
           blog(LOG_WARNING,
-               "[obs-scrcpy-source] no first video frame within %u ms; reconnecting automatically",
+               "[obs-scrcpy-source] no first video frame within %u ms; "
+               "reconnecting automatically",
                kFirstVideoFrameTimeoutMs);
           break;
         }
 
         if (server_process_) {
-          DWORD wait =
-              WaitForSingleObject(reinterpret_cast<HANDLE>(server_process_),
-                                  100);
+          DWORD wait = WaitForSingleObject(
+              reinterpret_cast<HANDLE>(server_process_), 100);
           if (wait == WAIT_OBJECT_0) {
-            blog(LOG_INFO,
-                 "[obs-scrcpy-source] scrcpy server exited; reconnecting automatically");
+            blog(LOG_INFO, "[obs-scrcpy-source] scrcpy server exited; "
+                           "reconnecting automatically");
             break;
           }
         } else {
@@ -956,8 +1100,8 @@ void ScrcpyRuntime::run()
     }
 
     ++retry_count;
-    const auto delay = std::chrono::milliseconds(
-        scrcpy_reconnect_delay_ms(retry_count));
+    const auto delay =
+        std::chrono::milliseconds(scrcpy_reconnect_delay_ms(retry_count));
     blog(LOG_INFO,
          "[obs-scrcpy-source] reconnect attempt %u scheduled in %lld ms",
          retry_count, static_cast<long long>(delay.count()));
@@ -967,8 +1111,7 @@ void ScrcpyRuntime::run()
   }
 }
 
-bool ScrcpyRuntime::start_session()
-{
+bool ScrcpyRuntime::start_session() {
   if (server_version_.empty()) {
     server_version_ = detect_scrcpy_server_version(settings_);
   }
@@ -982,7 +1125,8 @@ bool ScrcpyRuntime::start_session()
            scrcpy_path.c_str());
     } else {
       blog(LOG_ERROR,
-           "[obs-scrcpy-source] unsupported scrcpy server version %s; supported versions are 4.0 and 4.1",
+           "[obs-scrcpy-source] unsupported scrcpy server version %s; "
+           "supported versions are 4.0 and 4.1",
            server_version_.c_str());
     }
     return false;
@@ -1001,7 +1145,8 @@ bool ScrcpyRuntime::start_session()
     return false;
   }
 
-  if (!run_adb_checked({adb_path(settings_), "start-server"}, "adb start-server")) {
+  if (!run_adb_checked({adb_path(settings_), "start-server"},
+                       "adb start-server")) {
     return false;
   }
 
@@ -1052,6 +1197,8 @@ bool ScrcpyRuntime::start_session()
 
   video_stream_ended_ = false;
   first_video_frame_at_ns_ = 0;
+  latest_video_pts_us_ = 0;
+  latest_presented_video_pts_us_ = 0;
   video_thread_ = std::thread(&ScrcpyRuntime::video_loop, this);
   SetThreadPriority(static_cast<HANDLE>(video_thread_.native_handle()),
                     THREAD_PRIORITY_ABOVE_NORMAL);
@@ -1064,8 +1211,7 @@ bool ScrcpyRuntime::start_session()
   return true;
 }
 
-void ScrcpyRuntime::stop_session()
-{
+void ScrcpyRuntime::stop_session() {
   close_socket(video_socket_);
   close_socket(audio_socket_);
   close_socket(listen_socket_);
@@ -1078,8 +1224,7 @@ void ScrcpyRuntime::stop_session()
   cleanup();
 }
 
-bool ScrcpyRuntime::wait_before_retry(std::chrono::milliseconds delay)
-{
+bool ScrcpyRuntime::wait_before_retry(std::chrono::milliseconds delay) {
   constexpr auto slice = std::chrono::milliseconds(100);
   auto remaining = delay;
   while (!stopping_ && remaining.count() > 0) {
@@ -1090,8 +1235,7 @@ bool ScrcpyRuntime::wait_before_retry(std::chrono::milliseconds delay)
   return !stopping_;
 }
 
-void ScrcpyRuntime::cleanup()
-{
+void ScrcpyRuntime::cleanup() {
   close_socket(video_socket_);
   close_socket(audio_socket_);
   close_socket(listen_socket_);
@@ -1120,8 +1264,7 @@ void ScrcpyRuntime::cleanup()
   }
 }
 
-bool ScrcpyRuntime::prepare_server_socket()
-{
+bool ScrcpyRuntime::prepare_server_socket() {
   SOCKET socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (socket == INVALID_SOCKET) {
     return false;
@@ -1154,8 +1297,7 @@ bool ScrcpyRuntime::prepare_server_socket()
 }
 
 bool ScrcpyRuntime::run_adb_checked(const std::vector<std::string> &args,
-                                    const char *label)
-{
+                                    const char *label) {
   DWORD exit_code = 1;
   bool ok = run_process_wait(args, &exit_code);
   if (!ok || exit_code != 0) {
@@ -1166,8 +1308,7 @@ bool ScrcpyRuntime::run_adb_checked(const std::vector<std::string> &args,
   return true;
 }
 
-bool ScrcpyRuntime::start_adb_server_process()
-{
+bool ScrcpyRuntime::start_adb_server_process() {
   std::vector<std::string> selector = build_adb_selector_args(settings_);
   std::vector<std::string> args = {adb_path(settings_)};
   args.insert(args.end(), selector.begin(), selector.end());
@@ -1189,16 +1330,15 @@ bool ScrcpyRuntime::start_adb_server_process()
   args.push_back("audio=true");
   args.push_back("video_codec=" + settings_.video_codec);
   args.push_back("audio_codec=" + settings_.audio_codec);
-  args.push_back("video_bit_rate=" +
-                 std::to_string(parse_bit_rate(settings_.video_bit_rate,
-                                                8000000)));
-  args.push_back("audio_bit_rate=" +
-                 std::to_string(parse_bit_rate(settings_.audio_bit_rate,
-                                                128000)));
+  args.push_back("video_bit_rate=" + std::to_string(parse_bit_rate(
+                                         settings_.video_bit_rate, 8000000)));
+  args.push_back("audio_bit_rate=" + std::to_string(parse_bit_rate(
+                                         settings_.audio_bit_rate, 128000)));
   append_if_value(args, "video_encoder", settings_.video_encoder);
   append_if_value(args, "audio_encoder", settings_.audio_encoder);
-  append_if_value(args, "video_codec_options",
-                  merge_realtime_video_codec_options(settings_.video_codec_options));
+  append_if_value(
+      args, "video_codec_options",
+      merge_realtime_video_codec_options(settings_.video_codec_options));
   append_if_value(args, "audio_codec_options",
                   normalize_audio_codec_options(settings_.audio_codec_options));
   if (settings_.max_size > 0) {
@@ -1219,8 +1359,7 @@ bool ScrcpyRuntime::start_adb_server_process()
   return ok;
 }
 
-bool ScrcpyRuntime::accept_streams()
-{
+bool ScrcpyRuntime::accept_streams() {
   SOCKET listen_socket = as_socket(listen_socket_);
   const auto wait_for_stream = [this, listen_socket](int timeout_ms) {
     constexpr int poll_ms = 100;
@@ -1240,8 +1379,7 @@ bool ScrcpyRuntime::accept_streams()
     if (stopping_) {
       return false;
     }
-    blog(LOG_ERROR,
-         "[obs-scrcpy-source] timed out waiting for video socket");
+    blog(LOG_ERROR, "[obs-scrcpy-source] timed out waiting for video socket");
     return false;
   }
 
@@ -1278,14 +1416,10 @@ bool ScrcpyRuntime::accept_streams()
   return true;
 }
 
-void ScrcpyRuntime::video_loop()
-{
+void ScrcpyRuntime::video_loop() {
   struct MarkVideoEnded {
     std::atomic<bool> &flag;
-    ~MarkVideoEnded()
-    {
-      flag = true;
-    }
+    ~MarkVideoEnded() { flag = true; }
   } mark_video_ended{video_stream_ended_};
 
   SOCKET socket = as_socket(video_socket_);
@@ -1300,7 +1434,8 @@ void ScrcpyRuntime::video_loop()
   uint32_t raw_codec_id = read_be32(codec_buf);
   const AVCodec *codec = find_video_decoder(raw_codec_id);
   if (!codec) {
-    blog(LOG_ERROR, "[obs-scrcpy-source] missing video decoder for codec 0x%08x",
+    blog(LOG_ERROR,
+         "[obs-scrcpy-source] missing video decoder for codec 0x%08x",
          raw_codec_id);
     return;
   }
@@ -1312,11 +1447,6 @@ void ScrcpyRuntime::video_loop()
     return;
   }
 
-  AVCodecContext *ctx = avcodec_alloc_context3(codec);
-  if (!ctx) {
-    return;
-  }
-
   uint32_t session_width = read_be32(header.data() + 4);
   uint32_t session_height = read_be32(header.data() + 8);
   if (!is_valid_frame_geometry(static_cast<int>(session_width),
@@ -1324,40 +1454,22 @@ void ScrcpyRuntime::video_loop()
     blog(LOG_WARNING,
          "[obs-scrcpy-source] invalid initial video session dimensions: %ux%u",
          session_width, session_height);
-    avcodec_free_context(&ctx);
     return;
   }
   width_ = session_width;
   height_ = session_height;
 
-  configure_software_decoder(ctx, session_width, session_height);
   AVPixelFormat hardware_format = AV_PIX_FMT_NONE;
-  bool hardware_decode = configure_d3d11va_decoder(ctx, codec, hardware_format);
-
-  int ret = avcodec_open2(ctx, codec, nullptr);
-  if (ret < 0 && hardware_decode) {
-    blog(LOG_WARNING,
-         "[obs-scrcpy-source] D3D11VA decoder open failed, using software decode: %s",
-         av_error(ret).c_str());
-    avcodec_free_context(&ctx);
-    ctx = avcodec_alloc_context3(codec);
-    if (!ctx) {
-      return;
-    }
-    configure_software_decoder(ctx, session_width, session_height);
-    hardware_decode = false;
-    hardware_format = AV_PIX_FMT_NONE;
-    ret = avcodec_open2(ctx, codec, nullptr);
-  }
-  if (ret < 0) {
-    blog(LOG_ERROR, "[obs-scrcpy-source] could not open video decoder: %s",
-         av_error(ret).c_str());
-    avcodec_free_context(&ctx);
+  bool hardware_decode = false;
+  AVCodecContext *ctx = create_video_decoder_context(
+      codec, session_width, session_height, hardware_decode, hardware_format);
+  if (!ctx) {
     return;
   }
 
   blog(LOG_INFO,
-       "[obs-scrcpy-source] video diagnostics: decoder=%s path=%s threads=%d OBS buffering=%s CV bridge=%s",
+       "[obs-scrcpy-source] video diagnostics: decoder=%s path=%s threads=%d "
+       "OBS buffering=%s CV bridge=%s",
        codec->name ? codec->name : "unknown",
        hardware_decode ? "D3D11VA" : "software", ctx->thread_count,
        obs_source_async_unbuffered(source_) ? "disabled" : "enabled",
@@ -1368,14 +1480,14 @@ void ScrcpyRuntime::video_loop()
   AVPacket *packet = av_packet_alloc();
   std::vector<uint8_t> config;
   bool config_pending = false;
+  bool waiting_for_keyframe = false;
   bool logged_first_frame = false;
   bool logged_unsupported_format = false;
   bool have_pts_baseline = false;
   uint64_t first_pts = 0;
   uint64_t latest_pts = 0;
   auto first_pts_received_at = std::chrono::steady_clock::now();
-  auto next_diagnostics_at =
-      first_pts_received_at + std::chrono::seconds(2);
+  auto next_diagnostics_at = first_pts_received_at + std::chrono::seconds(2);
   uint64_t interval_packets = 0;
   uint64_t interval_frames = 0;
   uint64_t interval_suppressed_frames = 0;
@@ -1395,15 +1507,22 @@ void ScrcpyRuntime::video_loop()
        settings_.video_codec.c_str(),
        settings_.video_encoder.empty() ? "(device default)"
                                        : settings_.video_encoder.c_str(),
-       settings_.max_fps, video_codec_options.empty() ? "(none)"
-                                                      : video_codec_options.c_str(),
+       settings_.max_fps,
+       video_codec_options.empty() ? "(none)" : video_codec_options.c_str(),
        settings_.encoder_refresh_minutes);
 
   auto emit_decoded_frame = [&](const AVFrame *output_frame,
                                 uint64_t timestamp_ns) -> bool {
+    if (!output_frame ||
+        output_frame->width != static_cast<int>(session_width) ||
+        output_frame->height != static_cast<int>(session_height)) {
+      log_dropped_frame("frame does not match active capture session",
+                        output_frame);
+      return false;
+    }
     if (output_obs_video_frame(source_, output_frame, timestamp_ns)) {
       if (first_video_frame_at_ns_.load() == 0) {
-        first_video_frame_at_ns_.store(timestamp_ns);
+        first_video_frame_at_ns_.store(os_gettime_ns());
       }
       ++interval_frames;
       queue_bridge_frame(output_frame);
@@ -1461,7 +1580,8 @@ void ScrcpyRuntime::video_loop()
     return emitted;
   };
 
-  auto decode_video_packet = [&](bool present_frame, bool track_presented_pts) {
+  auto decode_video_packet = [&](bool present_frame,
+                                 bool track_presented_pts) -> bool {
     auto receive_frame = [&]() -> int {
       const int receive_ret = avcodec_receive_frame(ctx, frame);
       if (receive_ret < 0) {
@@ -1478,8 +1598,7 @@ void ScrcpyRuntime::video_loop()
           decoded_pts >= 0
               ? scrcpy_media_timestamp_ns(static_cast<uint64_t>(decoded_pts), 0)
               : os_gettime_ns();
-      const bool emitted =
-          transfer_and_emit_frame(present_frame, timestamp_ns);
+      const bool emitted = transfer_and_emit_frame(present_frame, timestamp_ns);
       if (emitted && track_presented_pts && decoded_pts >= 0) {
         latest_presented_video_pts_us_.store(
             static_cast<uint64_t>(decoded_pts));
@@ -1491,19 +1610,19 @@ void ScrcpyRuntime::video_loop()
     while (send_ret == AVERROR(EAGAIN)) {
       const int receive_ret = receive_frame();
       if (receive_ret == AVERROR(EAGAIN)) {
-        blog(LOG_WARNING,
-             "[obs-scrcpy-source] decoder stalled with a full input queue; flushing");
+        blog(LOG_WARNING, "[obs-scrcpy-source] decoder stalled with a full "
+                          "input queue; flushing");
         avcodec_flush_buffers(ctx);
         config_pending = !config.empty();
-        return;
+        return false;
       }
       if (receive_ret == AVERROR_EOF) {
-        return;
+        return false;
       }
       if (receive_ret < 0) {
         blog(LOG_ERROR, "[obs-scrcpy-source] could not receive video frame: %s",
              av_error(receive_ret).c_str());
-        return;
+        return false;
       }
       send_ret = avcodec_send_packet(ctx, packet);
     }
@@ -1512,7 +1631,7 @@ void ScrcpyRuntime::video_loop()
       blog(LOG_WARNING,
            "[obs-scrcpy-source] could not send video packet to %s decoder: %s",
            codec->name ? codec->name : "video", av_error(send_ret).c_str());
-      return;
+      return false;
     }
 
     for (;;) {
@@ -1523,9 +1642,10 @@ void ScrcpyRuntime::video_loop()
       if (receive_ret < 0) {
         blog(LOG_ERROR, "[obs-scrcpy-source] could not receive video frame: %s",
              av_error(receive_ret).c_str());
-        break;
+        return false;
       }
     }
+    return true;
   };
 
   while (!stopping_) {
@@ -1535,31 +1655,63 @@ void ScrcpyRuntime::video_loop()
 
     uint64_t pts_flags = read_be64(header.data());
     if (pts_flags & kPacketFlagSession) {
-      const uint32_t session_width = read_be32(header.data() + 4);
-      const uint32_t session_height = read_be32(header.data() + 8);
-      if (!is_valid_frame_geometry(static_cast<int>(session_width),
-                                   static_cast<int>(session_height))) {
+      const uint32_t new_session_width = read_be32(header.data() + 4);
+      const uint32_t new_session_height = read_be32(header.data() + 8);
+      if (!is_valid_frame_geometry(static_cast<int>(new_session_width),
+                                   static_cast<int>(new_session_height))) {
         log_dropped_frame("invalid session dimensions", nullptr);
         continue;
       }
-      if (width_.load() != session_width || height_.load() != session_height) {
+      if (session_width != new_session_width ||
+          session_height != new_session_height) {
         blog(LOG_INFO,
-             "[obs-scrcpy-source] video session update: %ux%u -> %ux%u",
-             width_.load(), height_.load(), session_width, session_height);
-        width_ = session_width;
-        height_ = session_height;
-        avcodec_flush_buffers(ctx);
-        have_pts_baseline = false;
-        first_pts = 0;
-        latest_video_pts_us_.store(0);
-        latest_presented_video_pts_us_.store(0);
-        next_diagnostics_at = std::chrono::steady_clock::now() +
-                              std::chrono::seconds(2);
-        logged_first_frame = false;
+             "[obs-scrcpy-source] capture orientation changed in place: %ux%u "
+             "-> %ux%u",
+             session_width, session_height, new_session_width,
+             new_session_height);
       } else {
-        width_ = session_width;
-        height_ = session_height;
+        blog(LOG_INFO,
+             "[obs-scrcpy-source] new capture session at %ux%u; resetting "
+             "decoder in place",
+             new_session_width, new_session_height);
       }
+      // scrcpy 4.1 restarts MediaCodec for every capture session. Discard any
+      // queued frames and recreate the D3D11VA allocation for the new shape,
+      // while keeping the sockets, server, and last OBS frame alive.
+      av_frame_unref(frame);
+      av_frame_unref(software_frame);
+      bool next_hardware_decode = false;
+      AVCodecContext *next_ctx = create_video_decoder_context(
+          codec, new_session_width, new_session_height, next_hardware_decode,
+          hardware_format);
+      if (!next_ctx) {
+        blog(
+            LOG_ERROR,
+            "[obs-scrcpy-source] could not reconfigure video decoder in place");
+        break;
+      }
+      avcodec_free_context(&ctx);
+      ctx = next_ctx;
+      hardware_decode = next_hardware_decode;
+      session_width = new_session_width;
+      session_height = new_session_height;
+      width_ = new_session_width;
+      height_ = new_session_height;
+      blog(LOG_INFO,
+           "[obs-scrcpy-source] decoder reconfigured in place: path=%s %ux%u",
+           hardware_decode ? "D3D11VA" : "software", session_width,
+           session_height);
+
+      config.clear();
+      config_pending = false;
+      waiting_for_keyframe = false;
+      have_pts_baseline = false;
+      first_pts = 0;
+      latest_pts = 0;
+      live_edge_policy = LiveEdgeVideoPolicy{};
+      next_diagnostics_at =
+          std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      logged_first_frame = false;
       continue;
     }
 
@@ -1597,11 +1749,11 @@ void ScrcpyRuntime::video_loop()
       live_edge_action =
           live_edge_policy.decide(socket_backlog, current_pts_drift_ms);
       rebase_live_edge_clock = live_edge_policy.take_clock_rebase_request();
-      if (live_edge_action == LiveEdgeVideoAction::RestartStream) {
+      if (live_edge_action == LiveEdgeVideoAction::RebaseClock) {
         blog(LOG_WARNING,
-             "[obs-scrcpy-source] video clock discontinuity %+.1f ms; reconnecting at live edge",
+             "[obs-scrcpy-source] video clock discontinuity %+.1f ms; rebasing "
+             "in place",
              current_pts_drift_ms);
-        break;
       }
     }
 
@@ -1614,9 +1766,14 @@ void ScrcpyRuntime::video_loop()
       break;
     }
 
-    if (is_config && merge_config_packets) {
-      config.assign(packet->data, packet->data + packet->size);
-      config_pending = true;
+    if (is_config) {
+      if (merge_config_packets) {
+        config.assign(packet->data, packet->data + packet->size);
+        config_pending = true;
+      }
+      // Match scrcpy 4.1's decoder: config packets are never submitted to
+      // FFmpeg. H.26x config is prepended to the next media packet above;
+      // AV1 and VPx config packets are consumed and ignored.
       av_packet_unref(packet);
       continue;
     }
@@ -1628,9 +1785,7 @@ void ScrcpyRuntime::video_loop()
       packet->flags |= AV_PKT_FLAG_KEY;
     }
 
-    if (is_config) {
-      decode_video_packet(true, false);
-    } else {
+    {
       const auto packet_received_at = std::chrono::steady_clock::now();
       latest_pts = packet_pts_us;
       latest_video_pts_us_.store(packet_pts_us);
@@ -1642,6 +1797,12 @@ void ScrcpyRuntime::video_loop()
       }
 
       ++interval_packets;
+
+      if (waiting_for_keyframe && !is_keyframe) {
+        ++interval_suppressed_frames;
+        av_packet_unref(packet);
+        continue;
+      }
 
       if (!config.empty() && (config_pending || is_keyframe) &&
           merge_config_packets) {
@@ -1658,13 +1819,25 @@ void ScrcpyRuntime::video_loop()
       }
 
       const bool present_frame =
-          live_edge_action == LiveEdgeVideoAction::DecodeAndPresent;
-      decode_video_packet(present_frame, true);
+          live_edge_action != LiveEdgeVideoAction::DecodeWithoutPresent;
+      const bool decoded = decode_video_packet(present_frame, true);
+      if (!decoded) {
+        blog(LOG_WARNING, "[obs-scrcpy-source] resetting video decoder in "
+                          "place and waiting for a keyframe");
+        avcodec_flush_buffers(ctx);
+        av_frame_unref(frame);
+        av_frame_unref(software_frame);
+        config_pending = !config.empty();
+        waiting_for_keyframe = true;
+        have_pts_baseline = false;
+      } else if (is_keyframe) {
+        waiting_for_keyframe = false;
+      }
 
       const auto decode_output_finished_at = std::chrono::steady_clock::now();
       const double decode_output_ms =
-          std::chrono::duration<double, std::milli>(
-              decode_output_finished_at - packet_received_at)
+          std::chrono::duration<double, std::milli>(decode_output_finished_at -
+                                                    packet_received_at)
               .count();
       interval_decode_output_ms += decode_output_ms;
       max_decode_output_ms = std::max(max_decode_output_ms, decode_output_ms);
@@ -1680,13 +1853,13 @@ void ScrcpyRuntime::video_loop()
                 : 0.0;
         const double pts_drift_ms = host_elapsed_ms - pts_elapsed_ms;
         const double average_decode_output_ms =
-            interval_packets
-                ? interval_decode_output_ms /
-                      static_cast<double>(interval_packets)
-                : 0.0;
+            interval_packets ? interval_decode_output_ms /
+                                   static_cast<double>(interval_packets)
+                             : 0.0;
         if (settings_.encoder_refresh_minutes > 0) {
-          const auto session_age = std::chrono::duration_cast<std::chrono::minutes>(
-              decode_output_finished_at - session_started_at);
+          const auto session_age =
+              std::chrono::duration_cast<std::chrono::minutes>(
+                  decode_output_finished_at - session_started_at);
           if (session_age.count() >= settings_.encoder_refresh_minutes) {
             blog(LOG_INFO,
                  "[obs-scrcpy-source] refreshing device encoder after %lld "
@@ -1696,7 +1869,10 @@ void ScrcpyRuntime::video_loop()
           }
         }
         blog(LOG_INFO,
-             "[obs-scrcpy-source] video latency: PTS drift=%+.1f ms, socket backlog<=%lu bytes, packets=%llu, frames=%llu, suppressed=%llu, decode+output avg=%.2f ms max=%.2f ms last=%.2f ms budget=%.2f ms, OBS buffering=%s",
+             "[obs-scrcpy-source] video latency: PTS drift=%+.1f ms, socket "
+             "backlog<=%lu bytes, packets=%llu, frames=%llu, suppressed=%llu, "
+             "decode+output avg=%.2f ms max=%.2f ms last=%.2f ms budget=%.2f "
+             "ms, OBS buffering=%s",
              pts_drift_ms, static_cast<unsigned long>(max_socket_backlog),
              static_cast<unsigned long long>(interval_packets),
              static_cast<unsigned long long>(interval_frames),
@@ -1710,7 +1886,8 @@ void ScrcpyRuntime::video_loop()
         interval_decode_output_ms = 0.0;
         max_decode_output_ms = 0.0;
         max_socket_backlog = 0;
-        next_diagnostics_at = decode_output_finished_at + std::chrono::seconds(2);
+        next_diagnostics_at =
+            decode_output_finished_at + std::chrono::seconds(2);
       }
     }
 
@@ -1724,8 +1901,7 @@ void ScrcpyRuntime::video_loop()
   avcodec_free_context(&ctx);
 }
 
-void ScrcpyRuntime::queue_bridge_frame(const AVFrame *frame)
-{
+void ScrcpyRuntime::queue_bridge_frame(const AVFrame *frame) {
   if (stopping_ || !settings_.cv_bridge_enabled) {
     return;
   }
@@ -1758,14 +1934,10 @@ void ScrcpyRuntime::queue_bridge_frame(const AVFrame *frame)
   bridge_condition_.notify_one();
 }
 
-void ScrcpyRuntime::bridge_loop()
-{
+void ScrcpyRuntime::bridge_loop() {
   struct BridgeBusyGuard {
     std::atomic<bool> &busy;
-    ~BridgeBusyGuard()
-    {
-      busy.store(false, std::memory_order_relaxed);
-    }
+    ~BridgeBusyGuard() { busy.store(false, std::memory_order_relaxed); }
   };
 
   while (!stopping_) {
@@ -1787,11 +1959,9 @@ void ScrcpyRuntime::bridge_loop()
       BridgeBusyGuard busy_guard{bridge_busy_};
       int width = 0;
       int height = 0;
-      std::vector<uint8_t> bgra =
-          make_bridge_bgra(frame,
-                           std::min(settings_.cv_bridge_max_width,
-                                    kCvBridgeMaxWidth),
-                           width, height);
+      std::vector<uint8_t> bgra = make_bridge_bgra(
+          frame, std::min(settings_.cv_bridge_max_width, kCvBridgeMaxWidth),
+          width, height);
       av_frame_free(&frame);
       if (!bgra.empty()) {
         post_bridge_raw_frame(bgra, width, height);
@@ -1802,8 +1972,7 @@ void ScrcpyRuntime::bridge_loop()
   }
 }
 
-void ScrcpyRuntime::audio_loop()
-{
+void ScrcpyRuntime::audio_loop() {
   SOCKET socket = as_socket(audio_socket_);
 
   uint8_t codec_buf[4] = {};
@@ -1815,7 +1984,8 @@ void ScrcpyRuntime::audio_loop()
   AVCodecID codec_id = av_codec_for_scrcpy_id(raw_codec_id);
   const AVCodec *codec = avcodec_find_decoder(codec_id);
   if (!codec) {
-    blog(LOG_WARNING, "[obs-scrcpy-source] missing audio decoder for codec 0x%08x",
+    blog(LOG_WARNING,
+         "[obs-scrcpy-source] missing audio decoder for codec 0x%08x",
          raw_codec_id);
     return;
   }
@@ -1843,9 +2013,8 @@ void ScrcpyRuntime::audio_loop()
   SwrContext *swr = nullptr;
   AVChannelLayout stereo;
   av_channel_layout_default(&stereo, 2);
-  swr_alloc_set_opts2(&swr, &stereo, AV_SAMPLE_FMT_S16, 48000,
-                      &ctx->ch_layout, ctx->sample_fmt, ctx->sample_rate, 0,
-                      nullptr);
+  swr_alloc_set_opts2(&swr, &stereo, AV_SAMPLE_FMT_S16, 48000, &ctx->ch_layout,
+                      ctx->sample_fmt, ctx->sample_rate, 0, nullptr);
   if (swr) {
     swr_init(swr);
   }
@@ -1892,11 +2061,12 @@ void ScrcpyRuntime::audio_loop()
       if (now >= next_audio_debug_at) {
         const uint64_t presented_pts = latest_presented_video_pts_us_.load();
         const int64_t av_delta_us =
-            presented_pts > 0
-                ? frame_pts - static_cast<int64_t>(presented_pts)
-                : 0;
+            presented_pts > 0 ? frame_pts - static_cast<int64_t>(presented_pts)
+                              : 0;
         blog(LOG_INFO,
-             "[obs-scrcpy-source] audio sync: A/V PTS delta=%+.1f ms, target delay=%d ms, timeline=shared-device-PTS, skipped=%llu, emitted=%llu",
+             "[obs-scrcpy-source] audio sync: A/V PTS delta=%+.1f ms, target "
+             "delay=%d ms, timeline=shared-device-PTS, skipped=%llu, "
+             "emitted=%llu",
              static_cast<double>(av_delta_us) / 1000.0,
              settings_.audio_buffer_ms,
              static_cast<unsigned long long>(skipped_audio_packets),
@@ -1920,35 +2090,43 @@ void ScrcpyRuntime::audio_loop()
     const bool is_config = (pts_flags & kPacketFlagConfig) != 0;
     const uint64_t packet_pts_us = pts_flags & kPacketPtsMask;
 
-    if (!is_config) {
-      u_long socket_backlog = 0;
-      if (ioctlsocket(socket, FIONREAD, &socket_backlog) == 0) {
-        (void)socket_backlog;
+    // scrcpy's decoder consumes codec-config packets without submitting them
+    // to FFmpeg. Feeding the Opus config as media produces an error at every
+    // stream start and is unnecessary for the packets emitted by MediaCodec.
+    if (is_config) {
+      if (!discard_socket_data(socket, packet_size)) {
+        break;
       }
+      continue;
+    }
 
-      const uint64_t presented_pts = latest_presented_video_pts_us_.load();
-      if (live_edge_audio_action(packet_pts_us, presented_pts, socket_backlog) ==
-          LiveEdgeAudioAction::SkipPayload) {
-        ++skipped_audio_packets;
-        if (!discard_socket_data(socket, packet_size)) {
-          break;
-        }
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= next_audio_debug_at) {
-          const int64_t lead_us =
-              presented_pts > 0
-                  ? static_cast<int64_t>(packet_pts_us) -
-                        static_cast<int64_t>(presented_pts)
-                  : 0;
-          blog(LOG_DEBUG,
-               "[obs-scrcpy-source] audio live-edge recovery: lead=%lld ms, skipped=%llu, emitted=%llu",
-               static_cast<long long>(lead_us / 1000),
-               static_cast<unsigned long long>(skipped_audio_packets),
-               static_cast<unsigned long long>(emitted_audio_frames));
-          next_audio_debug_at = now + std::chrono::seconds(2);
-        }
-        continue;
+    u_long socket_backlog = 0;
+    if (ioctlsocket(socket, FIONREAD, &socket_backlog) == 0) {
+      (void)socket_backlog;
+    }
+
+    const uint64_t presented_pts = latest_presented_video_pts_us_.load();
+    if (live_edge_audio_action(packet_pts_us, presented_pts, socket_backlog) ==
+        LiveEdgeAudioAction::SkipPayload) {
+      ++skipped_audio_packets;
+      if (!discard_socket_data(socket, packet_size)) {
+        break;
       }
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= next_audio_debug_at) {
+        const int64_t lead_us = presented_pts > 0
+                                    ? static_cast<int64_t>(packet_pts_us) -
+                                          static_cast<int64_t>(presented_pts)
+                                    : 0;
+        blog(LOG_DEBUG,
+             "[obs-scrcpy-source] audio live-edge recovery: lead=%lld ms, "
+             "skipped=%llu, emitted=%llu",
+             static_cast<long long>(lead_us / 1000),
+             static_cast<unsigned long long>(skipped_audio_packets),
+             static_cast<unsigned long long>(emitted_audio_frames));
+        next_audio_debug_at = now + std::chrono::seconds(2);
+      }
+      continue;
     }
 
     if (av_new_packet(packet, packet_size) < 0) {
@@ -1960,8 +2138,7 @@ void ScrcpyRuntime::audio_loop()
       break;
     }
 
-    packet->pts = is_config ? AV_NOPTS_VALUE
-                            : static_cast<int64_t>(packet_pts_us);
+    packet->pts = static_cast<int64_t>(packet_pts_us);
     packet->dts = packet->pts;
 
     auto receive_audio_frame = [&]() -> int {
@@ -1977,8 +2154,8 @@ void ScrcpyRuntime::audio_loop()
     while (send_ret == AVERROR(EAGAIN)) {
       const int receive_ret = receive_audio_frame();
       if (receive_ret == AVERROR(EAGAIN)) {
-        blog(LOG_WARNING,
-             "[obs-scrcpy-source] audio decoder stalled with a full input queue; flushing");
+        blog(LOG_WARNING, "[obs-scrcpy-source] audio decoder stalled with a "
+                          "full input queue; flushing");
         avcodec_flush_buffers(ctx);
         break;
       }

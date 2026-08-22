@@ -11,7 +11,7 @@ constexpr uint32_t kFirstVideoFrameTimeoutMs = 3000;
 enum class LiveEdgeVideoAction {
   DecodeAndPresent,
   DecodeWithoutPresent,
-  RestartStream,
+  RebaseClock,
 };
 
 enum class LiveEdgeAudioAction {
@@ -36,8 +36,9 @@ private:
   bool clock_rebase_requested_ = false;
 };
 
-LiveEdgeAudioAction live_edge_audio_action(uint64_t packet_pts_us,
-                                           uint64_t latest_presented_video_pts_us,
-                                           uint64_t socket_backlog_bytes);
+LiveEdgeAudioAction
+live_edge_audio_action(uint64_t packet_pts_us,
+                       uint64_t latest_presented_video_pts_us,
+                       uint64_t socket_backlog_bytes);
 
 uint64_t scrcpy_media_timestamp_ns(uint64_t pts_us, int target_delay_ms);

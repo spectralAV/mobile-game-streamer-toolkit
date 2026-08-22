@@ -11,17 +11,13 @@ namespace {
 constexpr uint64_t kVideoLiveEdgeBacklogBytes = 48 * 1024;
 constexpr uint64_t kVideoCaughtUpBacklogBytes = 8 * 1024;
 constexpr double kVideoCaughtUpDriftMs = 50.0;
-constexpr double kVideoRestartDriftMs = 1000.0;
+constexpr double kVideoRebaseDriftMs = 1000.0;
 
 } // namespace
 
-uint32_t normalize_scrcpy_scid(uint32_t value)
-{
-  return value & 0x7fffffffu;
-}
+uint32_t normalize_scrcpy_scid(uint32_t value) { return value & 0x7fffffffu; }
 
-uint32_t scrcpy_reconnect_delay_ms(uint32_t retry_count)
-{
+uint32_t scrcpy_reconnect_delay_ms(uint32_t retry_count) {
   if (retry_count == 0) {
     return 0;
   }
@@ -34,8 +30,7 @@ uint32_t scrcpy_reconnect_delay_ms(uint32_t retry_count)
 
 bool scrcpy_first_video_frame_timed_out(uint64_t now_ns,
                                         uint64_t session_started_ns,
-                                        uint64_t first_frame_at_ns)
-{
+                                        uint64_t first_frame_at_ns) {
   if (session_started_ns == 0 || first_frame_at_ns != 0 ||
       now_ns < session_started_ns) {
     return false;
@@ -48,12 +43,11 @@ bool scrcpy_first_video_frame_timed_out(uint64_t now_ns,
 }
 
 LiveEdgeVideoAction LiveEdgeVideoPolicy::decide(uint64_t socket_backlog_bytes,
-                                                double pts_drift_ms)
-{
-  if (std::abs(pts_drift_ms) > kVideoRestartDriftMs) {
+                                                double pts_drift_ms) {
+  if (std::abs(pts_drift_ms) > kVideoRebaseDriftMs) {
     suppressing_presentation_ = false;
-    clock_rebase_requested_ = false;
-    return LiveEdgeVideoAction::RestartStream;
+    clock_rebase_requested_ = true;
+    return LiveEdgeVideoAction::RebaseClock;
   }
 
   if (suppressing_presentation_) {
@@ -69,43 +63,46 @@ LiveEdgeVideoAction LiveEdgeVideoPolicy::decide(uint64_t socket_backlog_bytes,
   }
 
   return suppressing_presentation_ ? LiveEdgeVideoAction::DecodeWithoutPresent
-                                  : LiveEdgeVideoAction::DecodeAndPresent;
+                                   : LiveEdgeVideoAction::DecodeAndPresent;
 }
 
-bool LiveEdgeVideoPolicy::take_clock_rebase_request()
-{
+bool LiveEdgeVideoPolicy::take_clock_rebase_request() {
   const bool requested = clock_rebase_requested_;
   clock_rebase_requested_ = false;
   return requested;
 }
 
-LiveEdgeAudioAction live_edge_audio_action(uint64_t packet_pts_us,
-                                           uint64_t latest_presented_video_pts_us,
-                                           uint64_t socket_backlog_bytes)
-{
+LiveEdgeAudioAction
+live_edge_audio_action(uint64_t packet_pts_us,
+                       uint64_t latest_presented_video_pts_us,
+                       uint64_t socket_backlog_bytes) {
   (void)socket_backlog_bytes;
   if (latest_presented_video_pts_us == 0) {
     return LiveEdgeAudioAction::Decode;
   }
   // Stale audio can remain queued behind video even after FIONREAD falls below
   // one receive-buffer window. PTS is the authoritative cross-stream signal.
-  if (packet_pts_us + kMaxRealtimeDelayUs < latest_presented_video_pts_us) {
+  if (latest_presented_video_pts_us > packet_pts_us &&
+      latest_presented_video_pts_us - packet_pts_us > kMaxRealtimeDelayUs) {
+    return LiveEdgeAudioAction::SkipPayload;
+  }
+  // Keep audio from running away while video waits for the first keyframe of a
+  // new capture session or recovers from a decoder error.
+  if (packet_pts_us > latest_presented_video_pts_us &&
+      packet_pts_us - latest_presented_video_pts_us > kMaxRealtimeDelayUs) {
     return LiveEdgeAudioAction::SkipPayload;
   }
   return LiveEdgeAudioAction::Decode;
 }
 
-uint64_t scrcpy_media_timestamp_ns(uint64_t pts_us, int target_delay_ms)
-{
+uint64_t scrcpy_media_timestamp_ns(uint64_t pts_us, int target_delay_ms) {
   constexpr uint64_t kNanosecondsPerMicrosecond = 1000;
   constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
-  const uint64_t delay_ns =
-      static_cast<uint64_t>(
-          std::clamp(target_delay_ms, 0, kMaxRealtimeDelayMs)) *
-      kNanosecondsPerMillisecond;
-  if (pts_us >
-      (std::numeric_limits<uint64_t>::max() - delay_ns) /
-          kNanosecondsPerMicrosecond) {
+  const uint64_t delay_ns = static_cast<uint64_t>(std::clamp(
+                                target_delay_ms, 0, kMaxRealtimeDelayMs)) *
+                            kNanosecondsPerMillisecond;
+  if (pts_us > (std::numeric_limits<uint64_t>::max() - delay_ns) /
+                   kNanosecondsPerMicrosecond) {
     return std::numeric_limits<uint64_t>::max();
   }
   return pts_us * kNanosecondsPerMicrosecond + delay_ns;
