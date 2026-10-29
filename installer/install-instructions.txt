@@ -4,10 +4,13 @@
 
 Thank you for installing the OBS scrcpy Source Plugin!
 
-All necessary runtime files have been installed, including:
+All necessary runtime files and system drivers have been installed out of the box:
   - OBS scrcpy source plugin with hardware-accelerated FFmpeg decoding (D3D11VA)
   - scrcpy 4.1 runtime & ADB tools (installed to C:\Program Files\scrcpy\4.1)
   - Apple AirPlay 2 receiver runtime & iPhone USB Reverse Tethering helper
+  - Apple Bonjour Service (mDNS discovery for AirPlay)
+  - Apple Mobile Device Support + WHQL Apple USB/NCM & signed libusb0 drivers
+  - Windows Defender Firewall inbound rules for OBS AirPlay & mDNS
 
 1. How to add Android scrcpy Source:
    - In OBS Studio, click the '+' button under the Sources list.
@@ -25,8 +28,8 @@ All necessary runtime files have been installed, including:
    - On your iPhone, iPad, or Mac, open Control Center -> Screen Mirroring.
    - Select your receiver name to stream video and audio directly into OBS.
    - Optional: Enable "iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)"
-     in the source properties to mirror over a USB cable without Wi-Fi lag.
-   - Note: Bonjour for Windows (or iTunes) is required for AirPlay discovery.
+     in the source properties to mirror over a USB cable without Wi-Fi lag
+     (unlock your iPhone and tap "Trust" when prompted on first connection).
 
 3. Low Latency Streaming Tips:
    - Audio buffer: set to 0 ms for lowest latency.

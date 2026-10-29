@@ -446,24 +446,177 @@ bool IPhoneTetherManager::RestartDeviceNode(const std::wstring &phone_id)
   return true;
 }
 
-bool IPhoneTetherManager::PerformModeSwitch(int target_mode, std::string &error_msg)
+bool IPhoneTetherManager::EnsureLibusbFilterAttached(const std::wstring &phone_id)
+{
+  if (phone_id.empty()) {
+    return false;
+  }
+
+  // Locate helper directory where libusb0.sys and install-filter.exe live
+  std::wstring modDir;
+  wchar_t modPath[MAX_PATH] = {0};
+  HMODULE hCurrent = nullptr;
+  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                     (LPCWSTR)&fn_usb_init, &hCurrent);
+  if (hCurrent && GetModuleFileNameW(hCurrent, modPath, MAX_PATH)) {
+    wchar_t *lastSlash = wcsrchr(modPath, L'\\');
+    if (lastSlash) {
+      *(lastSlash + 1) = L'\0';
+      modDir = modPath;
+    }
+  }
+
+  // 1. Ensure libusb0.sys is present in System32\drivers and registered as a kernel driver service
+  wchar_t sysDir[MAX_PATH] = {0};
+  if (GetSystemDirectoryW(sysDir, MAX_PATH)) {
+    std::wstring targetSys = std::wstring(sysDir) + L"\\drivers\\libusb0.sys";
+    if (GetFileAttributesW(targetSys.c_str()) == INVALID_FILE_ATTRIBUTES && !modDir.empty()) {
+      std::wstring bundledSys = modDir + L"libusb0.sys";
+      if (GetFileAttributesW(bundledSys.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        CopyFileW(bundledSys.c_str(), targetSys.c_str(), FALSE);
+      }
+    }
+
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
+    if (scm) {
+      SC_HANDLE svc = OpenServiceW(scm, L"libusb0", SERVICE_QUERY_STATUS);
+      if (!svc && GetFileAttributesW(targetSys.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        svc = CreateServiceW(
+            scm,
+            L"libusb0",
+            L"libusb-win32 - Kernel Driver, Version 1.4.0.2",
+            SERVICE_ALL_ACCESS,
+            SERVICE_KERNEL_DRIVER,
+            SERVICE_DEMAND_START,
+            SERVICE_ERROR_NORMAL,
+            L"system32\\drivers\\libusb0.sys",
+            nullptr, nullptr, nullptr, nullptr, nullptr);
+        if (svc) {
+          LogTether("Registered libusb0 kernel driver service.");
+        }
+      }
+      if (svc) {
+        CloseServiceHandle(svc);
+      }
+      CloseServiceHandle(scm);
+    }
+  }
+
+  // Helper lambda to check if UpperFilters on phone_id already contains "libusb0"
+  std::wstring enumKeyPath = L"SYSTEM\\CurrentControlSet\\Enum\\" + phone_id;
+  auto hasLibusbUpperFilter = [&](std::vector<std::wstring> *existingOut) -> bool {
+    if (existingOut) {
+      existingOut->clear();
+    }
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, enumKeyPath.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+      return false;
+    }
+    DWORD dwType = 0;
+    DWORD cbData = 0;
+    bool found = false;
+    if (RegQueryValueExW(hKey, L"UpperFilters", nullptr, &dwType, nullptr, &cbData) == ERROR_SUCCESS &&
+        (dwType == REG_MULTI_SZ || dwType == REG_SZ) && cbData >= sizeof(wchar_t)) {
+      std::vector<wchar_t> buf((cbData / sizeof(wchar_t)) + 2, L'\0');
+      if (RegQueryValueExW(hKey, L"UpperFilters", nullptr, &dwType, (LPBYTE)buf.data(), &cbData) == ERROR_SUCCESS) {
+        const wchar_t *p = buf.data();
+        while (*p) {
+          std::wstring entry = p;
+          if (CaseInsensitiveContains(entry, L"libusb0") && entry.size() == 7) {
+            found = true;
+          }
+          if (existingOut) {
+            existingOut->push_back(entry);
+          }
+          p += entry.size() + 1;
+        }
+      }
+    }
+    RegCloseKey(hKey);
+    return found;
+  };
+
+  std::vector<std::wstring> existingFilters;
+  if (hasLibusbUpperFilter(&existingFilters)) {
+    return true;
+  }
+
+  LogTether("Attaching libusb0 upper filter to newly connected iPhone: " + WideToUtf8(phone_id));
+
+  // 2. Try official install-filter.exe first against the device's primary Hardware ID
+  if (!modDir.empty()) {
+    std::wstring filterExe = modDir + L"install-filter.exe";
+    if (GetFileAttributesW(filterExe.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      DEVNODE dn;
+      if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)phone_id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+        wchar_t hwBuf[1024] = {0};
+        ULONG hwLen = sizeof(hwBuf);
+        if (CM_Get_DevNode_Registry_PropertyW(dn, CM_DRP_HARDWAREID, nullptr, hwBuf, &hwLen, 0) == CR_SUCCESS && hwBuf[0]) {
+          std::wstring cmd = L"\"" + filterExe + L"\" install \"--device=" + std::wstring(hwBuf) + L"\"";
+          RunHiddenCommand(cmd);
+        }
+      }
+    }
+  }
+
+  // 3. Verify UpperFilters on composite devnode; apply registry fallback + devnode restart if needed
+  if (!hasLibusbUpperFilter(&existingFilters)) {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, enumKeyPath.c_str(), 0, KEY_SET_VALUE | KEY_READ, &hKey) == ERROR_SUCCESS) {
+      existingFilters.push_back(L"libusb0");
+      std::vector<wchar_t> multiSz;
+      for (const auto &item : existingFilters) {
+        multiSz.insert(multiSz.end(), item.begin(), item.end());
+        multiSz.push_back(L'\0');
+      }
+      multiSz.push_back(L'\0');
+      RegSetValueExW(
+          hKey,
+          L"UpperFilters",
+          0,
+          REG_MULTI_SZ,
+          (const BYTE *)multiSz.data(),
+          (DWORD)(multiSz.size() * sizeof(wchar_t)));
+      RegCloseKey(hKey);
+      LogTether("Applied UpperFilters=libusb0 on " + WideToUtf8(phone_id) + "; restarting device node...");
+      RestartDeviceNode(phone_id);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+  } else {
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+
+  if (fn_usb_init) {
+    fn_usb_init();
+  }
+  return hasLibusbUpperFilter(nullptr);
+}
+
+bool IPhoneTetherManager::PerformModeSwitch(int target_mode, const std::wstring &phone_id, std::string &error_msg)
 {
   if (!EnsureLibusbLoaded()) {
     error_msg = "libusb0.dll or filter driver is not available";
     return false;
   }
 
-  fn_usb_find_busses();
-  fn_usb_find_devices();
-  struct usb_bus *busses = fn_usb_get_busses();
-
-  struct usb_device *apple_dev = nullptr;
-  for (struct usb_bus *bus = busses; bus && !apple_dev; bus = bus->next) {
-    for (struct usb_device *dev = bus->devices; dev; dev = dev->next) {
-      if (dev->descriptor.idVendor == 0x05AC) {
-        apple_dev = dev;
-        break;
+  auto findAppleUsbDev = [&]() -> struct usb_device * {
+    fn_usb_find_busses();
+    fn_usb_find_devices();
+    struct usb_bus *busses = fn_usb_get_busses();
+    for (struct usb_bus *bus = busses; bus; bus = bus->next) {
+      for (struct usb_device *dev = bus->devices; dev; dev = dev->next) {
+        if (dev->descriptor.idVendor == 0x05AC) {
+          return dev;
+        }
       }
+    }
+    return nullptr;
+  };
+
+  struct usb_device *apple_dev = findAppleUsbDev();
+  if (!apple_dev && target_mode == 3 && !phone_id.empty()) {
+    if (EnsureLibusbFilterAttached(phone_id)) {
+      apple_dev = findAppleUsbDev();
     }
   }
 
@@ -1103,7 +1256,7 @@ void IPhoneTetherManager::MonitorLoop()
       SetRegistryConfigIndex(phone_id, kNcmIndex, kSafeIndex);
 
       std::string mode_err;
-      if (!PerformModeSwitch(3, mode_err)) {
+      if (!PerformModeSwitch(3, phone_id, mode_err)) {
         LogTether("PerformModeSwitch(3) failed: " + mode_err);
         {
           std::lock_guard<std::mutex> lock(state_mutex_);
@@ -1302,7 +1455,7 @@ bool IPhoneTetherManager::StopShare(bool full_revert, std::string &error_msg)
 
   // 2. Drop carrier on NCM adapter via SET_MODE 2 vendor request
   std::string mode_err;
-  PerformModeSwitch(2, mode_err);
+  PerformModeSwitch(2, current_phone_id_, mode_err);
 
   // 3. Keep Photo (PTP) interface disabled so Windows never prompts for photo access on replug
   DisablePhotoInterface();

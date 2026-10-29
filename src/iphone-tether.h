@@ -68,7 +68,8 @@ private:
   bool RemoveRegistryConfigIndex(const std::wstring &phone_id);
   void RemoveAllRegistryConfigIndices(bool full_revert);
   bool RestartDeviceNode(const std::wstring &phone_id);
-  bool PerformModeSwitch(int target_mode, std::string &error_msg);
+  bool EnsureLibusbFilterAttached(const std::wstring &phone_id);
+  bool PerformModeSwitch(int target_mode, const std::wstring &phone_id, std::string &error_msg);
   bool FindNcmAdapter(std::wstring &adapter_name, std::wstring &adapter_desc, uint32_t &if_index, bool &is_up);
   bool FindActiveUplink(std::wstring &uplink_name, uint32_t &uplink_if_index);
   bool ConfigureIcs(const std::wstring &uplink_name, const std::wstring &ncm_name, std::string &error_msg);

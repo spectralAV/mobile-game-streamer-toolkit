@@ -3,10 +3,12 @@
     Builds the production installer and portable zip package for OBS scrcpy source plugin.
 
 .DESCRIPTION
-    Stages all required binaries and assets (plugin DLL, debug symbols, FFmpeg 8.0.1 runtime
-    libraries with D3D11VA hardware acceleration, Apple AirPlay 2 receiver runtime, iPhone USB
-    reverse tethering helper & libusb0 runtime, plugin localization data, and scrcpy 4.1 runtime
-    with ADB), then compiles the Inno Setup .exe installer and generates a portable release .zip archive.
+    Stages all required binaries, drivers, and system prerequisites (plugin DLL, debug symbols,
+    FFmpeg 8.0.1 runtime libraries with D3D11VA hardware acceleration, Apple AirPlay 2 receiver
+    runtime, iPhone USB reverse tethering helper & signed libusb0 kernel filter driver, official
+    Apple Bonjour & Apple Mobile Device Support MSIs + WHQL USB/NCM drivers, plugin localization
+    data, and scrcpy 4.1 runtime with ADB), then compiles the Inno Setup .exe installer and
+    generates a portable release .zip archive.
 
 .PARAMETER Configuration
     Build configuration (RelWithDebInfo or Release). Default is RelWithDebInfo.
@@ -34,7 +36,8 @@ param(
     [string]$ScrcpyRuntimeDir = "",
     [string]$AirPlayRuntimeDir = "",
     [string]$FfmpegRuntimeDir = "",
-    [string]$LibusbRuntimeDir = ""
+    [string]$LibusbRuntimeDir = "",
+    [string]$AppleRedistDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,6 +100,10 @@ if (-not $LibusbRuntimeDir) {
     $LibusbRuntimeDir = Join-Path $repoRoot "vendor\libusb-win32\bin\amd64"
 }
 
+if (-not $AppleRedistDir) {
+    $AppleRedistDir = Join-Path $repoRoot "vendor\apple-redist"
+}
+
 if (-not $ScrcpyRuntimeDir) {
     $vendorScrcpy = Join-Path $repoRoot "vendor\scrcpy-4.1"
     if (Test-Path -LiteralPath $vendorScrcpy) {
@@ -116,8 +123,9 @@ Remove-Item -LiteralPath $stagingDir -Recurse -Force -ErrorAction SilentlyContin
 $stagingPlugins = Join-Path $stagingDir "obs-plugins\64bit"
 $stagingData = Join-Path $stagingDir "data\obs-plugins\$productName"
 $stagingScrcpy = Join-Path $stagingDir "scrcpy-4.1"
+$stagingRedist = Join-Path $stagingDir "redist"
 
-New-Item -ItemType Directory -Force $stagingPlugins, $stagingData, $stagingScrcpy | Out-Null
+New-Item -ItemType Directory -Force $stagingPlugins, $stagingData, $stagingScrcpy, $stagingRedist | Out-Null
 
 # 1. Plugin DLL, Helper EXE & Debug Symbols
 Copy-Item -LiteralPath $dllPath -Destination (Join-Path $stagingPlugins "$productName.dll") -Force
@@ -129,12 +137,34 @@ if (Test-Path -LiteralPath $helperPdbPath) {
     Copy-Item -LiteralPath $helperPdbPath -Destination (Join-Path $stagingPlugins "obs-airplay-tether-helper.pdb") -Force
 }
 
-# 2. libusb-win32 Runtime for iPhone USB Reverse Tethering
-$libusbDll = Join-Path $LibusbRuntimeDir "libusb0.dll"
-if (-not (Test-Path -LiteralPath $libusbDll)) {
-    throw "Required libusb0.dll missing: $libusbDll"
+# 2. Signed libusb-win32 1.4.0.2 Runtime, Kernel Driver & Filter Installer for iPhone USB Reverse Tethering
+foreach ($libusbFile in @("libusb0.dll", "libusb0.sys", "install-filter.exe")) {
+    $libusbSrc = Join-Path $LibusbRuntimeDir $libusbFile
+    if (-not (Test-Path -LiteralPath $libusbSrc)) {
+        throw "Required libusb-win32 file missing: $libusbSrc"
+    }
+    Copy-Item -LiteralPath $libusbSrc -Destination (Join-Path $stagingPlugins $libusbFile) -Force
 }
-Copy-Item -LiteralPath $libusbDll -Destination (Join-Path $stagingPlugins "libusb0.dll") -Force
+
+# 2b. Apple Bonjour, Apple Mobile Device Support & WHQL USB/NCM Driver Redistributables
+$prereqScript = Join-Path $repoRoot "installer\setup-prerequisites.ps1"
+if (-not (Test-Path -LiteralPath $prereqScript)) {
+    throw "Prerequisite setup script missing: $prereqScript"
+}
+Copy-Item -LiteralPath $prereqScript -Destination (Join-Path $stagingRedist "setup-prerequisites.ps1") -Force
+
+foreach ($appleMsi in @("Bonjour64.msi", "AppleMobileDeviceSupport64.msi")) {
+    $msiSrc = Join-Path $AppleRedistDir $appleMsi
+    if (-not (Test-Path -LiteralPath $msiSrc)) {
+        throw "Required Apple redistributable MSI missing: $msiSrc"
+    }
+    Copy-Item -LiteralPath $msiSrc -Destination (Join-Path $stagingRedist $appleMsi) -Force
+}
+$appleDriversSrc = Join-Path $AppleRedistDir "drivers"
+if (-not (Test-Path -LiteralPath $appleDriversSrc)) {
+    throw "Required Apple WHQL drivers directory missing: $appleDriversSrc"
+}
+Copy-Item -LiteralPath $appleDriversSrc -Destination (Join-Path $stagingRedist "drivers") -Recurse -Force
 
 # 3. Apple AirPlay Runtime DLLs (copied before full FFmpeg so full D3D11VA/multi-codec FFmpeg DLLs win)
 if (Test-Path -LiteralPath $AirPlayRuntimeDir) {

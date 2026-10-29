@@ -2,7 +2,7 @@
 ; High-performance native Android scrcpy & Apple AirPlay input sources for OBS Studio
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.4"
+  #define MyAppVersion "0.3.5"
 #endif
 
 #ifndef MyAppName
@@ -73,14 +73,17 @@ InfoAfterFile=install-instructions.txt
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Types]
-Name: "full"; Description: "Full Installation (Recommended - Plugin, scrcpy 4.1 runtime, AirPlay)"
-Name: "compact"; Description: "Compact Installation (Plugin + scrcpy 4.1 only)"
+Name: "full"; Description: "Full Out-of-the-Box Installation (Recommended - Plugin, scrcpy 4.1, AirPlay, Bonjour, Apple USB Drivers & Firewall Rules)"
+Name: "compact"; Description: "Android Only Installation (Plugin + scrcpy 4.1 runtime only)"
 Name: "custom"; Description: "Custom Installation"; Flags: iscustom
 
 [Components]
 Name: "core"; Description: "OBS scrcpy Source Plugin (Core + FFmpeg D3D11VA runtime)"; Types: full compact custom; Flags: fixed
 Name: "scrcpy"; Description: "scrcpy 4.1 Runtime & ADB Tools (Installs to Program Files\scrcpy\4.1)"; Types: full compact custom
 Name: "airplay"; Description: "Apple AirPlay Receiver & iPhone USB Reverse Tethering Runtime (iOS/iPadOS/macOS)"; Types: full custom
+Name: "airplay\bonjour"; Description: "Apple Bonjour Service v3.1 (Required for AirPlay device discovery)"; Types: full custom
+Name: "airplay\apple_drivers"; Description: "Apple Mobile Device & USB Reverse Tethering Drivers (AMDS + WHQL USB/NCM + libusb0)"; Types: full custom
+Name: "airplay\firewall"; Description: "Windows Defender Firewall Rules (Allow OBS AirPlay & mDNS over Wi-Fi and USB)"; Types: full custom
 Name: "symbols"; Description: "Development Debug Symbols (.pdb)"; Types: custom
 
 [Files]
@@ -99,6 +102,14 @@ Source: "{#StagingDir}\obs-plugins\64bit\swscale-9.dll"; DestDir: "{app}\obs-plu
 Source: "{#StagingDir}\obs-plugins\64bit\obs-airplay-tether-helper.exe"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
 Source: "{#StagingDir}\obs-plugins\64bit\obs-airplay-tether-helper.pdb"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: symbols
 Source: "{#StagingDir}\obs-plugins\64bit\libusb0.dll"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
+Source: "{#StagingDir}\obs-plugins\64bit\libusb0.sys"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
+Source: "{#StagingDir}\obs-plugins\64bit\install-filter.exe"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
+
+; Temporary prerequisite redistributables (auto-deleted after installation) -> {tmp}\obs-airplay-redist
+Source: "{#StagingDir}\redist\setup-prerequisites.ps1"; DestDir: "{tmp}\obs-airplay-redist"; Flags: ignoreversion deleteafterinstall; Components: airplay
+Source: "{#StagingDir}\redist\Bonjour64.msi"; DestDir: "{tmp}\obs-airplay-redist"; Flags: ignoreversion deleteafterinstall skipifsourcedoesntexist; Components: airplay\bonjour
+Source: "{#StagingDir}\redist\AppleMobileDeviceSupport64.msi"; DestDir: "{tmp}\obs-airplay-redist"; Flags: ignoreversion deleteafterinstall skipifsourcedoesntexist; Components: airplay\apple_drivers
+Source: "{#StagingDir}\redist\drivers\*"; DestDir: "{tmp}\obs-airplay-redist\drivers"; Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall skipifsourcedoesntexist; Components: airplay\apple_drivers
 
 ; Plugin data & locale resources -> {app}\data\obs-plugins\obs-scrcpy-source
 Source: "{#StagingDir}\data\obs-plugins\obs-scrcpy-source\*"; DestDir: "{app}\data\obs-plugins\obs-scrcpy-source"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core
@@ -118,6 +129,8 @@ Type: files; Name: "{app}\obs-plugins\64bit\swscale-9.dll"
 Type: files; Name: "{app}\obs-plugins\64bit\obs-airplay-tether-helper.exe"
 Type: files; Name: "{app}\obs-plugins\64bit\obs-airplay-tether-helper.pdb"
 Type: files; Name: "{app}\obs-plugins\64bit\libusb0.dll"
+Type: files; Name: "{app}\obs-plugins\64bit\libusb0.sys"
+Type: files; Name: "{app}\obs-plugins\64bit\install-filter.exe"
 Type: files; Name: "{app}\obs-plugins\64bit\msys-2.0.dll"
 Type: files; Name: "{app}\obs-plugins\64bit\avcodec-58.dll"
 Type: files; Name: "{app}\obs-plugins\64bit\avutil-56.dll"
@@ -126,6 +139,9 @@ Type: filesandordirs; Name: "{app}\data\obs-plugins\obs-scrcpy-source"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$ErrorActionPreference = 'SilentlyContinue'; $a = New-ScheduledTaskAction -Execute '{app}\obs-plugins\64bit\obs-airplay-tether-helper.exe' -Argument '--run'; $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest; Register-ScheduledTask -TaskName 'OBS-AirPlay-Tether-Helper' -Action $a -Principal $p -Force | Out-Null"""; Flags: runhidden waituntilterminated; Components: airplay; StatusMsg: "Registering AirPlay USB Reverse Tethering helper..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{tmp}\obs-airplay-redist\setup-prerequisites.ps1"" -Action InstallBonjour -RedistDir ""{tmp}\obs-airplay-redist"""; Flags: runhidden waituntilterminated; Components: airplay\bonjour; StatusMsg: "Installing Apple Bonjour Service for AirPlay discovery..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{tmp}\obs-airplay-redist\setup-prerequisites.ps1"" -Action InstallAppleDrivers -RedistDir ""{tmp}\obs-airplay-redist"" -ObsDir ""{app}"" -PluginBinDir ""{app}\obs-plugins\64bit"""; Flags: runhidden waituntilterminated; Components: airplay\apple_drivers; StatusMsg: "Installing Apple Mobile Device & USB Reverse Tethering drivers..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{tmp}\obs-airplay-redist\setup-prerequisites.ps1"" -Action ConfigureFirewall -ObsDir ""{app}"""; Flags: runhidden waituntilterminated; Components: airplay\firewall; StatusMsg: "Configuring Windows Defender Firewall rules for AirPlay & mDNS..."
 Filename: "{app}\bin\64bit\obs64.exe"; Description: "Launch OBS Studio now"; Flags: postinstall nowait skipifsilent unchecked; Check: IsObsExePresent
 
 [Code]
@@ -277,12 +293,22 @@ end;
 procedure StopTetherHelper(DeleteTask: Boolean);
 var
   ResultCode: Integer;
+  HelperExe: String;
 begin
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/end /tn "OBS-AirPlay-Tether-Helper"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if DeleteTask then
+  begin
+    HelperExe := ExpandConstant('{app}\obs-plugins\64bit\obs-airplay-tether-helper.exe');
+    if FileExists(HelperExe) then
+    begin
+      Exec(HelperExe, '--stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    end;
+  end;
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM obs-airplay-tether-helper.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   if DeleteTask then
   begin
     Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "OBS-AirPlay-Tether-Helper" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec('powershell.exe', '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Remove-NetFirewallRule -Group ''OBS scrcpy & AirPlay Source'' -ErrorAction SilentlyContinue"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
 

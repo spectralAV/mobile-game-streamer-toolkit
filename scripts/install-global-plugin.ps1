@@ -104,9 +104,12 @@ try {
     }
 } catch {}
 
-$libusbSource = Join-Path $repoRoot "vendor\libusb-win32\bin\amd64\libusb0.dll"
-if (Test-Path -LiteralPath $libusbSource) {
-    Copy-Item -LiteralPath $libusbSource -Destination (Join-Path $globalBinDir "libusb0.dll") -Force
+$libusbDir = Join-Path $repoRoot "vendor\libusb-win32\bin\amd64"
+foreach ($libusbFile in @("libusb0.dll", "libusb0.sys", "install-filter.exe")) {
+    $libusbSource = Join-Path $libusbDir $libusbFile
+    if (Test-Path -LiteralPath $libusbSource) {
+        Copy-Item -LiteralPath $libusbSource -Destination (Join-Path $globalBinDir $libusbFile) -Force
+    }
 }
 
 Remove-Item -LiteralPath $globalDataDir -Recurse -Force -ErrorAction SilentlyContinue

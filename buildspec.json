@@ -35,7 +35,7 @@
   },
   "name": "obs-scrcpy-source",
   "displayName": "OBS scrcpy Source",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "author": "Rokas",
   "website": "https://github.com/Genymobile/scrcpy",
   "email": "noreply@example.com"
