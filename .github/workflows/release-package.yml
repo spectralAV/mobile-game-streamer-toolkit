@@ -1,0 +1,151 @@
+name: Release & Publish Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish/update (leave empty to use v<buildspec.version>)"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/spectralav/mobile-game-streamer-toolkit
+
+jobs:
+  build-plugin:
+    name: Build Windows x64 Plugin & Release Checksums
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read version and resolve tag
+        id: meta
+        shell: pwsh
+        run: |
+          $spec = Get-Content -LiteralPath "buildspec.json" -Raw | ConvertFrom-Json
+          $ver = $spec.version
+          $inputTag = "${{ inputs.release_tag }}"
+          if ($inputTag) {
+            $tag = $inputTag
+          } elseif ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+          } else {
+            $tag = "v$ver"
+          }
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Resolved version=$ver, tag=$tag"
+
+      - name: Cache OBS & FFmpeg SDK downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/obs-studio-32.1.2.zip
+            vendor/OBS-Studio-32.1.2-Windows-x64.zip
+            vendor/ffmpeg-8.0.1-full_build-shared.zip
+          key: windows-sdk-deps-obs32.1.2-ffmpeg8.0.1
+
+      - name: Build plugin and USB tether helper
+        shell: pwsh
+        run: .\scripts\configure-build.ps1 -Build -Configuration RelWithDebInfo
+
+      - name: Run CTest unit test suite
+        shell: pwsh
+        run: ctest --test-dir build -C RelWithDebInfo --output-on-failure
+
+      - name: Stage OCI package payload
+        shell: pwsh
+        run: |
+          $pkgDir = "build\oci-payload"
+          Remove-Item -LiteralPath $pkgDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$pkgDir\obs-plugins\64bit", "$pkgDir\data\obs-plugins\obs-scrcpy-source" | Out-Null
+          Copy-Item "build\RelWithDebInfo\obs-scrcpy-source.dll" "$pkgDir\obs-plugins\64bit\" -Force
+          Copy-Item "build\RelWithDebInfo\obs-scrcpy-source.pdb" "$pkgDir\obs-plugins\64bit\" -Force
+          Copy-Item "build\RelWithDebInfo\obs-airplay-tether-helper.exe" "$pkgDir\obs-plugins\64bit\" -Force
+          Copy-Item "build\RelWithDebInfo\obs-airplay-tether-helper.pdb" "$pkgDir\obs-plugins\64bit\" -Force
+          Copy-Item "data\*" "$pkgDir\data\obs-plugins\obs-scrcpy-source\" -Recurse -Force
+          Copy-Item "buildspec.json", "README.md" "$pkgDir\" -Force
+
+          $pluginOnlyZip = "build\obs-scrcpy-source-${{ steps.meta.outputs.version }}-windows-x64-core-binaries.zip"
+          Compress-Archive -Path "$pkgDir\*" -DestinationPath $pluginOnlyZip -Force
+
+      - name: Upload OCI payload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: oci-package-payload
+          path: build/oci-payload/**
+          include-hidden-files: false
+
+      - name: Ensure GitHub Release exists for tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.meta.outputs.tag }}"
+          $ver = "${{ steps.meta.outputs.version }}"
+          $coreZip = "build\obs-scrcpy-source-$ver-windows-x64-core-binaries.zip"
+          gh release view $tag >$null 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Creating GitHub Release $tag..."
+            gh release create $tag $coreZip --title "$tag — OBS scrcpy & AirPlay Source Plugin" --generate-notes
+          } else {
+            Write-Host "GitHub Release $tag already exists; uploading/updating core binaries archive..."
+            gh release upload $tag $coreZip --clobber
+          }
+
+  publish-ghcr-package:
+    name: Publish GitHub Package (GHCR OCI)
+    needs: build-plugin
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download built Windows plugin payload
+        uses: actions/download-artifact@v4
+        with:
+          name: oci-package-payload
+          path: oci-context/payload
+
+      - name: Write OCI artifact Dockerfile
+        run: |
+          cat <<'EOF' > oci-context/Dockerfile
+          FROM scratch
+          COPY payload/ /
+          EOF
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish OCI package to GitHub Packages
+        uses: docker/build-push-action@v6
+        with:
+          context: oci-context
+          push: true
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ needs.build-plugin.outputs.version }}
+            ${{ env.IMAGE_NAME }}:${{ needs.build-plugin.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=Mobile Game Streamer Toolkit (obs-scrcpy-source)
+            org.opencontainers.image.description=Native OBS Studio input plugin for low-latency Android scrcpy and Apple AirPlay screen mirroring with iPhone USB reverse tethering
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.build-plugin.outputs.version }}

@@ -20,7 +20,23 @@ $obsConfigHeader = Join-Path $sdkRoot "include\obsconfig.h"
 New-Item -ItemType Directory -Force $vendorRoot, $sdkRoot, (Join-Path $sdkRoot "lib"), $cmakeConfigDir, (Join-Path $sdkRoot "include") | Out-Null
 
 if (-not (Test-Path -LiteralPath $obsDll)) {
-    throw "obs.dll not found: $obsDll"
+    $vendorObsDll = Join-Path $vendorRoot "obs-bin-$ObsVersion\bin\64bit\obs.dll"
+    if (-not (Test-Path -LiteralPath $vendorObsDll)) {
+        $binZip = Join-Path $vendorRoot "OBS-Studio-$ObsVersion-Windows-x64.zip"
+        if (-not (Test-Path -LiteralPath $binZip)) {
+            $binUrl = "https://github.com/obsproject/obs-studio/releases/download/$ObsVersion/OBS-Studio-$ObsVersion-Windows-x64.zip"
+            Write-Host "Downloading OBS Studio $ObsVersion binary package for import library generation..."
+            Invoke-WebRequest -Uri $binUrl -OutFile $binZip
+        }
+        $binExtractDir = Join-Path $vendorRoot "obs-bin-$ObsVersion"
+        Remove-Item -LiteralPath $binExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+        Expand-Archive -LiteralPath $binZip -DestinationPath $binExtractDir -Force
+    }
+    if (Test-Path -LiteralPath $vendorObsDll) {
+        $obsDll = $vendorObsDll
+    } else {
+        throw "obs.dll not found at $obsDll or $vendorObsDll"
+    }
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $sourceRoot "libobs\obs.h"))) {

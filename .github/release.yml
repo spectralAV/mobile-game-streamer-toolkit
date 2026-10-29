@@ -1,0 +1,30 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+      - duplicate
+      - invalid
+      - wontfix
+  categories:
+    - title: "AirPlay & iPhone USB Reverse Tethering"
+      labels:
+        - airplay
+        - usb-tethering
+        - ios
+    - title: "Android scrcpy & Hardware Decoding"
+      labels:
+        - scrcpy
+        - android
+        - ffmpeg
+    - title: "Installer & Packaging"
+      labels:
+        - installer
+        - packaging
+        - dependencies
+    - title: "Bug Fixes & Stability"
+      labels:
+        - bug
+        - fix
+    - title: "Other Changes"
+      labels:
+        - "*"

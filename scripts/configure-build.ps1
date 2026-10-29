@@ -11,23 +11,30 @@ $tools = & (Join-Path $PSScriptRoot "find-vs-tools.ps1") | ConvertFrom-Json
 $sdk = & (Join-Path $PSScriptRoot "setup-obs-sdk.ps1") -ObsVersion $ObsVersion | ConvertFrom-Json
 $ffmpeg = & (Join-Path $PSScriptRoot "setup-ffmpeg-sdk.ps1") | ConvertFrom-Json
 $buildDir = Join-Path $repoRoot "build"
+$generator = "Visual Studio 17 2022"
+if ($tools.Version -like "18.*") {
+    $generator = "Visual Studio 18 2026"
+} elseif ($tools.Version -like "17.*") {
+    $generator = "Visual Studio 17 2022"
+}
+
 $cacheFile = Join-Path $buildDir "CMakeCache.txt"
 if (Test-Path -LiteralPath $cacheFile) {
     $expectedSource = ($repoRoot.Path -replace '\\', '/').TrimEnd('/')
     $homeLine = Select-String -LiteralPath $cacheFile -Pattern "^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)$" | Select-Object -First 1
-    if ($homeLine) {
-        $cachedSource = ($homeLine.Matches[0].Groups[1].Value -replace '\\', '/').TrimEnd('/')
-        if ($cachedSource -ne $expectedSource) {
-            Write-Host "Cleaning stale CMake cache from moved directory ($cachedSource -> $expectedSource)..." -ForegroundColor Yellow
-            Remove-Item -LiteralPath $buildDir -Recurse -Force
-        }
+    $genLine = Select-String -LiteralPath $cacheFile -Pattern "^CMAKE_GENERATOR:INTERNAL=(.+)$" | Select-Object -First 1
+    $staleSource = $homeLine -and ((($homeLine.Matches[0].Groups[1].Value -replace '\\', '/').TrimEnd('/')) -ne $expectedSource)
+    $staleGen = $genLine -and ($genLine.Matches[0].Groups[1].Value.Trim() -ne $generator)
+    if ($staleSource -or $staleGen) {
+        Write-Host "Cleaning stale CMake cache..." -ForegroundColor Yellow
+        Remove-Item -LiteralPath $buildDir -Recurse -Force
     }
 }
 
 & $tools.CMake `
     -S $repoRoot `
     -B $buildDir `
-    -G "Visual Studio 18 2026" `
+    -G $generator `
     -A x64 `
     -DOBS_PLUGIN_SKIP_DEPENDENCY_SETUP=ON `
     "-Dlibobs_DIR=$($sdk.PackageDir)" `

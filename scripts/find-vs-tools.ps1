@@ -19,7 +19,17 @@ if (-not $install) {
 }
 
 $vsRoot = $install.installationPath
-$cmake = Join-Path $vsRoot "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+$vsCmake = Join-Path $vsRoot "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+$cmake = $vsCmake
+$pathCmake = Get-Command "cmake.exe" -ErrorAction SilentlyContinue
+if ($pathCmake) {
+    try {
+        $verLine = (& $pathCmake.Source --version | Select-Object -First 1)
+        if ($verLine -match "(\d+\.\d+\.\d+)" -and ([version]$matches[1] -ge [version]"3.28.0")) {
+            $cmake = $pathCmake.Source
+        }
+    } catch {}
+}
 $ninja = Join-Path $vsRoot "Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
 $vsDevCmd = Join-Path $vsRoot "Common7\Tools\VsDevCmd.bat"
 
