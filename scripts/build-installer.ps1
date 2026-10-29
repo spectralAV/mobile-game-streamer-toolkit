@@ -137,8 +137,8 @@ if (Test-Path -LiteralPath $helperPdbPath) {
     Copy-Item -LiteralPath $helperPdbPath -Destination (Join-Path $stagingPlugins "obs-airplay-tether-helper.pdb") -Force
 }
 
-# 2. Signed libusb-win32 1.4.0.2 Runtime, Kernel Driver & Filter Installer for iPhone USB Reverse Tethering
-foreach ($libusbFile in @("libusb0.dll", "libusb0.sys", "install-filter.exe")) {
+# 2. Signed libusb-win32 1.4.0.2 Runtime & Dormant Kernel Driver for Session-Only iPhone USB Reverse Tethering
+foreach ($libusbFile in @("libusb0.dll", "libusb0.sys")) {
     $libusbSrc = Join-Path $LibusbRuntimeDir $libusbFile
     if (-not (Test-Path -LiteralPath $libusbSrc)) {
         throw "Required libusb-win32 file missing: $libusbSrc"

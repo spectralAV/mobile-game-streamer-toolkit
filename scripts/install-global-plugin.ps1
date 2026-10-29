@@ -96,20 +96,19 @@ if (Test-Path -LiteralPath $helperSource) {
     }
 }
 
-# Permanently disable the iPhone PTP photo interface to eliminate the "Allow access to photos" prompt on plug-in
-try {
-    Get-PnpDevice | Where-Object { $_.InstanceId -like 'USB\VID_05AC&PID_12A*MI_00*' } | ForEach-Object {
-        Write-Host "Disabling iPhone PTP photo interface to eliminate photo prompts: $($_.InstanceId)..."
-        pnputil /disable-device "$($_.InstanceId)" | Out-Null
-    }
-} catch {}
-
 $libusbDir = Join-Path $repoRoot "vendor\libusb-win32\bin\amd64"
-foreach ($libusbFile in @("libusb0.dll", "libusb0.sys", "install-filter.exe")) {
+foreach ($libusbFile in @("libusb0.dll", "libusb0.sys")) {
     $libusbSource = Join-Path $libusbDir $libusbFile
     if (Test-Path -LiteralPath $libusbSource) {
         Copy-Item -LiteralPath $libusbSource -Destination (Join-Path $globalBinDir $libusbFile) -Force
     }
+}
+Remove-Item -LiteralPath (Join-Path $globalBinDir "install-filter.exe") -Force -ErrorAction SilentlyContinue
+
+if (Test-Path -LiteralPath (Join-Path $globalBinDir "obs-airplay-tether-helper.exe")) {
+    try {
+        & (Join-Path $globalBinDir "obs-airplay-tether-helper.exe") --stop | Out-Null
+    } catch {}
 }
 
 Remove-Item -LiteralPath $globalDataDir -Recurse -Force -ErrorAction SilentlyContinue

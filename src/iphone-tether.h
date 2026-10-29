@@ -53,6 +53,10 @@ public:
 
   bool IsRunning() const { return running_; }
   bool WasActive() const { return was_active_; }
+  bool NeedsCleanup() const
+  {
+    return monitor_running_.load() || running_ || was_active_ || filter_attached_.load();
+  }
 
 private:
   void MonitorLoop();
@@ -69,6 +73,7 @@ private:
   void RemoveAllRegistryConfigIndices(bool full_revert);
   bool RestartDeviceNode(const std::wstring &phone_id);
   bool EnsureLibusbFilterAttached(const std::wstring &phone_id);
+  bool DetachAllLibusbFilters();
   bool PerformModeSwitch(int target_mode, const std::wstring &phone_id, std::string &error_msg);
   bool FindNcmAdapter(std::wstring &adapter_name, std::wstring &adapter_desc, uint32_t &if_index, bool &is_up);
   bool FindActiveUplink(std::wstring &uplink_name, uint32_t &uplink_if_index);
@@ -78,6 +83,7 @@ private:
   void QueryLinkStats(uint32_t if_index, uint64_t &rx_bytes, uint64_t &tx_bytes);
 
   std::atomic<bool> monitor_running_{false};
+  std::atomic<bool> filter_attached_{false};
   std::thread monitor_thread_;
   std::mutex state_mutex_;
   TetherMonitorState monitor_state_ = TetherMonitorState::Idle;

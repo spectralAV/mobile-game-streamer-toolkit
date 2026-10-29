@@ -31,8 +31,8 @@ public:
   void OnObsShutdown();
 
 private:
-  bool EnsureConnected(std::string &error_msg);
-  bool SendPipeCommand(const std::string &cmd, std::string &response, std::string &error_msg);
+  bool EnsureConnected(bool allow_launch, std::string &error_msg);
+  bool SendPipeCommand(const std::string &cmd, bool allow_launch, std::string &response, std::string &error_msg);
   bool LaunchHelperElevated();
 
   std::mutex mutex_;

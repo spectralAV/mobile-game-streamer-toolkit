@@ -43,12 +43,13 @@ if (Test-Path -LiteralPath $helperSource) {
     Copy-Item -LiteralPath $helperSource -Destination (Join-Path $binDir "obs-airplay-tether-helper.exe") -Force
 }
 $libusbDir = Join-Path $repoRoot "vendor\libusb-win32\bin\amd64"
-foreach ($libusbFile in @("libusb0.dll", "libusb0.sys", "install-filter.exe")) {
+foreach ($libusbFile in @("libusb0.dll", "libusb0.sys")) {
     $libusbSource = Join-Path $libusbDir $libusbFile
     if (Test-Path -LiteralPath $libusbSource) {
         Copy-Item -LiteralPath $libusbSource -Destination (Join-Path $binDir $libusbFile) -Force
     }
 }
+Remove-Item -LiteralPath (Join-Path $binDir "install-filter.exe") -Force -ErrorAction SilentlyContinue
 
 Get-ChildItem -LiteralPath (Join-Path $repoRoot "data") |
     Copy-Item -Destination $dataDir -Recurse -Force

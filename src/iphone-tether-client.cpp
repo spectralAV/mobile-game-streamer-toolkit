@@ -68,6 +68,7 @@ IPhoneTetherStatus ParseStatusJson(const std::string &json)
 {
   IPhoneTetherStatus st;
   st.active = ExtractJsonBool(json, "active");
+  st.connecting = ExtractJsonBool(json, "connecting");
   st.state_text = ExtractJsonField(json, "state");
   st.phone_name = ExtractJsonField(json, "phone");
   st.adapter_name = ExtractJsonField(json, "adapter");
@@ -105,20 +106,29 @@ IPhoneTetherClient::~IPhoneTetherClient()
 
 void IPhoneTetherClient::OnObsShutdown()
 {
-  if (!is_active_) {
-    if (pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) {
-      CloseHandle((HANDLE)pipe_handle_);
-      pipe_handle_ = nullptr;
+  std::lock_guard<std::mutex> lock(mutex_);
+
+  if (use_in_process_ && in_process_manager_) {
+    if (in_process_manager_->NeedsCleanup()) {
+      std::string err;
+      in_process_manager_->StopShare(true, err);
     }
+    is_active_ = false;
     return;
   }
 
-  std::string err;
-  StopTethering(false, err);
+  // If helper pipe exists (even if tethering was stopped earlier in this OBS session),
+  // send EXIT without launching a new helper so stock Apple drivers are restored and no process lingers.
+  if ((pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) || WaitNamedPipeW(kPipeName, 50)) {
+    std::string resp, err;
+    SendPipeCommand("EXIT", false, resp, err);
+  }
+
   if (pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) {
     CloseHandle((HANDLE)pipe_handle_);
     pipe_handle_ = nullptr;
   }
+  is_active_ = false;
 }
 
 bool IPhoneTetherClient::LaunchHelperElevated()
@@ -184,15 +194,19 @@ bool IPhoneTetherClient::LaunchHelperElevated()
   return false;
 }
 
-bool IPhoneTetherClient::EnsureConnected(std::string &error_msg)
+bool IPhoneTetherClient::EnsureConnected(bool allow_launch, std::string &error_msg)
 {
   if (pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) {
     return true;
   }
 
   // Try to connect to existing pipe
-  if (!WaitNamedPipeW(kPipeName, 100)) {
-    // If not running, launch helper
+  if (!WaitNamedPipeW(kPipeName, 50)) {
+    if (!allow_launch) {
+      error_msg = "Tethering helper is idle";
+      return false;
+    }
+    // Only launch elevated helper when user explicitly enables USB Reverse Tethering
     if (!LaunchHelperElevated()) {
       error_msg = "Could not launch elevated reverse tethering helper service";
       return false;
@@ -219,9 +233,9 @@ bool IPhoneTetherClient::EnsureConnected(std::string &error_msg)
   return true;
 }
 
-bool IPhoneTetherClient::SendPipeCommand(const std::string &cmd, std::string &response, std::string &error_msg)
+bool IPhoneTetherClient::SendPipeCommand(const std::string &cmd, bool allow_launch, std::string &response, std::string &error_msg)
 {
-  if (!EnsureConnected(error_msg)) {
+  if (!EnsureConnected(allow_launch, error_msg)) {
     return false;
   }
 
@@ -261,18 +275,20 @@ bool IPhoneTetherClient::StartTethering(std::string &error_msg)
   }
 
   std::string resp;
-  if (!SendPipeCommand("START", resp, error_msg)) {
+  if (!SendPipeCommand("START", true, resp, error_msg)) {
     is_active_ = false;
     last_status_.state_text = "Error: " + error_msg;
     return false;
   }
 
   last_status_ = ParseStatusJson(resp);
-  is_active_ = last_status_.active;
+  // Mark session active whenever START succeeded (including while switching mode / awaiting trust)
+  // so StopTethering / OBS exit always cleans up back to stock Apple drivers.
+  is_active_ = true;
   if (!last_status_.error_message.empty()) {
     error_msg = last_status_.error_message;
   }
-  return is_active_;
+  return true;
 }
 
 bool IPhoneTetherClient::StopTethering(bool full_revert, std::string &error_msg)
@@ -286,16 +302,18 @@ bool IPhoneTetherClient::StopTethering(bool full_revert, std::string &error_msg)
     return ok;
   }
 
-  if (pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) {
+  if ((pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) || WaitNamedPipeW(kPipeName, 50)) {
     std::string resp;
-    SendPipeCommand(full_revert ? "EXIT" : "STOP", resp, error_msg);
-    CloseHandle((HANDLE)pipe_handle_);
-    pipe_handle_ = nullptr;
+    SendPipeCommand(full_revert ? "EXIT" : "STOP", false, resp, error_msg);
+    if (pipe_handle_ && pipe_handle_ != INVALID_HANDLE_VALUE) {
+      CloseHandle((HANDLE)pipe_handle_);
+      pipe_handle_ = nullptr;
+    }
   }
 
   is_active_ = false;
-  last_status_.active = false;
-  last_status_.state_text = "Stopped (Windows defaults restored)";
+  last_status_ = IPhoneTetherStatus{};
+  last_status_.state_text = "Disconnected (Stock Apple USB drivers active)";
   return true;
 }
 
@@ -309,9 +327,13 @@ IPhoneTetherStatus IPhoneTetherClient::GetStatus()
   }
 
   std::string resp, err;
-  if (SendPipeCommand("STATUS", resp, err)) {
+  // Never spawn the elevated helper just to read status when tethering is idle
+  if (SendPipeCommand("STATUS", false, resp, err)) {
     last_status_ = ParseStatusJson(resp);
-    is_active_ = last_status_.active;
+    is_active_ = last_status_.active || last_status_.connecting;
+  } else if (!is_active_) {
+    last_status_ = IPhoneTetherStatus{};
+    last_status_.state_text = "Disconnected (Cable idle)";
   }
 
   return last_status_;

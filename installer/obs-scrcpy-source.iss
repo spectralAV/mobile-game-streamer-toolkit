@@ -2,7 +2,7 @@
 ; High-performance native Android scrcpy & Apple AirPlay input sources for OBS Studio
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.5"
+  #define MyAppVersion "0.3.6"
 #endif
 
 #ifndef MyAppName
@@ -103,7 +103,6 @@ Source: "{#StagingDir}\obs-plugins\64bit\obs-airplay-tether-helper.exe"; DestDir
 Source: "{#StagingDir}\obs-plugins\64bit\obs-airplay-tether-helper.pdb"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: symbols
 Source: "{#StagingDir}\obs-plugins\64bit\libusb0.dll"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
 Source: "{#StagingDir}\obs-plugins\64bit\libusb0.sys"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
-Source: "{#StagingDir}\obs-plugins\64bit\install-filter.exe"; DestDir: "{app}\obs-plugins\64bit"; Flags: ignoreversion skipifsourcedoesntexist; Components: airplay
 
 ; Temporary prerequisite redistributables (auto-deleted after installation) -> {tmp}\obs-airplay-redist
 Source: "{#StagingDir}\redist\setup-prerequisites.ps1"; DestDir: "{tmp}\obs-airplay-redist"; Flags: ignoreversion deleteafterinstall; Components: airplay
@@ -118,6 +117,7 @@ Source: "{#StagingDir}\data\obs-plugins\obs-scrcpy-source\*"; DestDir: "{app}\da
 Source: "{#StagingDir}\scrcpy-4.1\*"; DestDir: "{code:GetScrcpyInstallDir}"; Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall; Components: scrcpy
 
 [InstallDelete]
+Type: files; Name: "{app}\obs-plugins\64bit\install-filter.exe"
 Type: files; Name: "{app}\obs-plugins\64bit\msys-2.0.dll"
 Type: files; Name: "{app}\obs-plugins\64bit\avcodec-58.dll"
 Type: files; Name: "{app}\obs-plugins\64bit\avutil-56.dll"
@@ -296,6 +296,7 @@ var
   HelperExe: String;
 begin
   Exec(ExpandConstant('{sys}\schtasks.exe'), '/end /tn "OBS-AirPlay-Tether-Helper"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM obs-airplay-tether-helper.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   if DeleteTask then
   begin
     HelperExe := ExpandConstant('{app}\obs-plugins\64bit\obs-airplay-tether-helper.exe');
@@ -303,10 +304,6 @@ begin
     begin
       Exec(HelperExe, '--stop', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     end;
-  end;
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM obs-airplay-tether-helper.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  if DeleteTask then
-  begin
     Exec(ExpandConstant('{sys}\schtasks.exe'), '/delete /tn "OBS-AirPlay-Tether-Helper" /f', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec('powershell.exe', '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Remove-NetFirewallRule -Group ''OBS scrcpy & AirPlay Source'' -ErrorAction SilentlyContinue"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;

@@ -30,6 +30,9 @@ All necessary runtime files and system drivers have been installed out of the bo
    - Optional: Enable "iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)"
      in the source properties to mirror over a USB cable without Wi-Fi lag
      (unlock your iPhone and tap "Trust" when prompted on first connection).
+     When USB Reverse Tethering is unchecked or OBS is closed, your iPhone
+     automatically uses 100% unmodified Apple USB drivers (Photos, File
+     Explorer, iTunes, and Apple Devices work normally).
 
 3. Low Latency Streaming Tips:
    - Audio buffer: set to 0 ms for lowest latency.

@@ -112,7 +112,8 @@ switch ($Action) {
         }
         Ensure-WindowsServiceRunning -ServiceName "Apple Mobile Device Service"
 
-        # 3. Provision signed libusb-win32 v1.4.0.2 kernel filter driver (libusb0.sys)
+        # 3. Provision signed libusb-win32 v1.4.0.2 kernel driver (libusb0.sys) as DEMAND_START
+        #    (stays completely dormant unless USB Reverse Tethering is actively enabled in OBS)
         if (-not $PluginBinDir -and $ObsDir) {
             $PluginBinDir = Join-Path $ObsDir "obs-plugins\64bit"
         }
@@ -124,31 +125,17 @@ switch ($Action) {
         }
         $libusbSvc = Get-Service -Name "libusb0" -ErrorAction SilentlyContinue
         if ((-not $libusbSvc) -and (Test-Path -LiteralPath $systemSys)) {
-            Write-PrereqLog "Registering libusb0 kernel driver service..."
+            Write-PrereqLog "Registering libusb0 kernel driver service (start=demand)..."
             & sc.exe create libusb0 type= kernel start= demand error= normal binPath= "system32\drivers\libusb0.sys" DisplayName= "libusb-win32 - Kernel Driver, Version 1.4.0.2" | Out-Null
         }
 
-        # 4. If an iPhone is already connected during installation, attach per-device filter & suppress PTP prompt
-        $filterExe = Join-Path $PluginBinDir "install-filter.exe"
-        try {
-            $iphones = Get-PnpDevice -Class "USB" -PresentOnly -ErrorAction SilentlyContinue |
-                Where-Object { $_.InstanceId -match 'VID_05AC&PID_12A' -and $_.InstanceId -notmatch 'MI_' }
-            foreach ($dev in $iphones) {
-                if ((Test-Path -LiteralPath $filterExe) -and $dev.HardwareID -and $dev.HardwareID.Count -gt 0) {
-                    $hwId = $dev.HardwareID[0]
-                    Write-PrereqLog "Attaching libusb0 upper filter to connected iPhone ($hwId)..."
-                    Start-Process -FilePath $filterExe -ArgumentList @("install", "`"--device=$hwId`"") -Wait -WindowStyle Hidden | Out-Null
-                }
-            }
-
-            Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-                Where-Object { $_.InstanceId -like 'USB\VID_05AC&PID_12A*MI_00*' } |
-                ForEach-Object {
-                    Write-PrereqLog "Disabling iPhone PTP photo interface: $($_.InstanceId)"
-                    Start-Process -FilePath "pnputil.exe" -ArgumentList @("/disable-device", "`"$($_.InstanceId)`"") -Wait -WindowStyle Hidden | Out-Null
-                }
-        } catch {
-            Write-PrereqLog "Note while probing connected iPhone devices: $($_.Exception.Message)"
+        # 4. Ensure stock Apple USB drivers (usbccgp + AppleLowerFilter + MI_00 Photos + MI_01 AppleUsbMux)
+        #    are 100% untouched when OBS is not running (cleans up any leftover state from older builds)
+        $obsRunning = Get-Process -Name "obs64", "obs32" -ErrorAction SilentlyContinue
+        $helperExe = Join-Path $PluginBinDir "obs-airplay-tether-helper.exe"
+        if ((-not $obsRunning) -and (Test-Path -LiteralPath $helperExe)) {
+            Write-PrereqLog "Ensuring stock Apple USB driver state via obs-airplay-tether-helper.exe --stop..."
+            Start-Process -FilePath $helperExe -ArgumentList @("--stop") -Wait -WindowStyle Hidden | Out-Null
         }
     }
 
@@ -212,3 +199,4 @@ switch ($Action) {
 }
 
 exit 0
+

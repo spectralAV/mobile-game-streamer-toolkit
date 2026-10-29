@@ -41,6 +41,7 @@ std::string StatusToJson(const IPhoneTetherStatus &st)
   std::ostringstream ss;
   ss << "{"
      << "\"active\":" << (st.active ? "true" : "false") << ","
+     << "\"connecting\":" << (st.connecting ? "true" : "false") << ","
      << "\"state\":\"" << st.state_text << "\","
      << "\"phone\":\"" << st.phone_name << "\","
      << "\"adapter\":\"" << st.adapter_name << "\","
@@ -114,10 +115,13 @@ int RunPipeServer()
       BOOL success = ReadFile(hPipe, inBuf, sizeof(inBuf) - 1, &bytesRead, nullptr);
       if (!success || bytesRead == 0) {
         LogMsg("Client disconnected.");
-        if (manager.IsRunning() || manager.WasActive()) {
-          LogMsg("Reverting reverse tethering to safe defaults...");
+        if (manager.NeedsCleanup()) {
+          LogMsg("Client disconnected while tethering active; reverting iPhone to stock Apple drivers and exiting...");
           std::string err;
-          manager.StopShare(false, err);
+          manager.StopShare(true, err);
+          DisconnectNamedPipe(hPipe);
+          CloseHandle(hPipe);
+          return 0;
         }
         break;
       }
@@ -145,8 +149,8 @@ int RunPipeServer()
         response = StatusToJson(manager.GetStatus());
       } else if (cmd == "EXIT") {
         std::string err;
-        if (manager.IsRunning() || manager.WasActive()) {
-          manager.StopShare(false, err);
+        if (manager.NeedsCleanup()) {
+          manager.StopShare(true, err);
         }
         LogMsg("EXIT received. Exiting helper.");
         response = "{\"status\":\"exiting\"}\n";

@@ -163,7 +163,7 @@ The repository includes a production-ready Windows Inno Setup installer and port
 - **OBS Plugin Binary & Symbols**: `obs-scrcpy-source.dll`, `obs-scrcpy-source.pdb`
 - **FFmpeg 8.0.1 Runtime**: `avcodec-62.dll`, `avutil-60.dll`, `swresample-6.dll` (full shared build with D3D11VA hardware acceleration)
 - **scrcpy 4.1 Runtime & ADB**: Full scrcpy 4.1 runtime and tools installed to `C:\Program Files\scrcpy\4.1\` (matching default plugin config)
-- **Apple AirPlay 2 & USB Reverse Tethering Runtime**: `airplay2dll.dll` (v1.2.5 native MSVC), `swscale-9.dll`, `obs-airplay-tether-helper.exe`, `obs-airplay-tether-helper.pdb`, `libusb0.dll`, signed `libusb0.sys` v1.4.0.2, and `install-filter.exe` (with automatic on-plug per-iPhone USB filter attachment)
+- **Apple AirPlay 2 & USB Reverse Tethering Runtime**: `airplay2dll.dll` (v1.2.5 native MSVC), `swscale-9.dll`, `obs-airplay-tether-helper.exe`, `obs-airplay-tether-helper.pdb`, `libusb0.dll`, and dormant `DEMAND_START` signed `libusb0.sys` v1.4.0.2 (session-only composite filter attachment while tethering is active, automatically reverting to 100% stock Apple USB drivers when tethering stops or OBS closes)
 - **Out-of-the-Box Apple Prerequisites & Firewall Rules**: Official Apple-signed `Bonjour64.msi` (v3.1.0.1), standalone `AppleMobileDeviceSupport64.msi` (v20.0.0.35, without iTunes player bloat), WHQL `AppleUsb` & `netaapl64` drivers, and Windows Defender Firewall inbound rules for OBS Studio & mDNS
 - **Localization & Assets**: `data\obs-plugins\obs-scrcpy-source\locale\`
 
@@ -183,8 +183,8 @@ Or force a fresh rebuild before packaging:
 
 Generated release artifacts in `release\`:
 
-- `release\obs-scrcpy-source-0.3.5-windows-x64-Installer.exe` — Self-contained Windows installer with auto-detection of OBS Studio, running process check (`obs64.exe` / `scrcpy.exe`), optional prerequisite checkboxes (Bonjour, Apple USB/NCM drivers, Firewall rules), and clean uninstallation in Windows Settings -> Apps.
-- `release\obs-scrcpy-source-0.3.5-windows-x64.zip` — Portable release package for portable OBS Studio installations.
+- `release\obs-scrcpy-source-0.3.6-windows-x64-Installer.exe` — Self-contained Windows installer with auto-detection of OBS Studio, running process check (`obs64.exe` / `scrcpy.exe`), optional prerequisite checkboxes (Bonjour, Apple USB/NCM drivers, Firewall rules), and clean uninstallation in Windows Settings -> Apps.
+- `release\obs-scrcpy-source-0.3.6-windows-x64.zip` — Portable release package for portable OBS Studio installations.
 
 ### Installing Globally via Script
 
