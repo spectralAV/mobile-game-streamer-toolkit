@@ -7,7 +7,7 @@ Mobile Game Streamer Toolkit runs locally inside OBS Studio and includes an opti
 | Version | Security support |
 | --- | --- |
 | `0.3.x` | Active public development support |
-| Earlier versions | Not supported — upgrade to `v0.3.6` or newer |
+| Earlier versions | Not supported — upgrade to `v0.3.7` or newer |
 
 ## Reporting A Vulnerability
 

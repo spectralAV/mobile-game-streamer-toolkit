@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Plugin version or commit
-      description: "Example: v0.3.6 or a commit SHA."
+      description: "Example: v0.3.7 or a commit SHA."
     validations:
       required: true
   - type: dropdown

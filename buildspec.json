@@ -35,7 +35,7 @@
   },
   "name": "obs-scrcpy-source",
   "displayName": "OBS scrcpy Source",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "author": "spectralAV",
   "website": "https://github.com/spectralAV/mobile-game-streamer-toolkit",
   "email": "git@spectralav.eu"

@@ -5,7 +5,7 @@ This guide covers installing `obs-scrcpy-source` on Windows 10/11 (64-bit) with 
 ## 1. Standalone Windows Installer (Recommended)
 
 1. Close **OBS Studio** (`obs64.exe`) and any standalone `scrcpy.exe` windows.
-2. Download `obs-scrcpy-source-0.3.6-windows-x64-Installer.exe` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+2. Download `obs-scrcpy-source-0.3.7-windows-x64-Installer.exe` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 3. Run the installer as Administrator:
    - The wizard automatically locates your OBS Studio installation directory (e.g., `C:\Program Files\obs-studio`).
    - Keep **Full Out-of-the-Box Installation** selected to install:
@@ -19,7 +19,7 @@ This guide covers installing `obs-scrcpy-source` on Windows 10/11 (64-bit) with 
 
 ## 2. Portable ZIP Installation
 
-1. Download `obs-scrcpy-source-0.3.6-windows-x64.zip` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+1. Download `obs-scrcpy-source-0.3.7-windows-x64.zip` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 2. Extract `obs-plugins\` and `data\` into your portable OBS Studio root folder.
 3. Extract `scrcpy-4.1\` to `C:\Program Files\scrcpy\4.1` (or point the source's **scrcpy executable** path to your extracted `scrcpy.exe`).
 4. Optional (for AirPlay & iPhone USB Reverse Tethering on a fresh PC): run `redist\setup-prerequisites.ps1` from an elevated PowerShell prompt to install Bonjour, Apple USB/NCM drivers, and firewall rules.

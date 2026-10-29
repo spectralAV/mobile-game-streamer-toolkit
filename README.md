@@ -33,7 +33,7 @@
 
 Mobile Game Streamer Toolkit (`obs-scrcpy-source`) is a native Windows x64 OBS Studio plugin built for mobile esports creators and broadcast setups. Instead of capturing external desktop windows or dealing with Wi-Fi jitter, it decodes Android `scrcpy` sockets and Apple AirPlay 2 streams directly inside OBS Studio using hardware-accelerated FFmpeg (`D3D11VA`), outputs synchronized low-latency video and audio frames via `obs_source_output_video()` / `obs_source_output_audio()`, and optionally bridges live frames directly to [MLBB Co-Pilot](https://github.com/spectralAV/mlbb-co-pilot).
 
-The project is actively progressing toward `1.0.0`. Current release: [`v0.3.6`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/tag/v0.3.6).
+The project is actively progressing toward `1.0.0`. Current release: [`v0.3.7`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/tag/v0.3.7).
 
 Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap to 1.0.0](docs/roadmap-1.0.md) · [Known Limitations](docs/known-limitations.md)
 
@@ -53,7 +53,7 @@ Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architectur
 
 ### End-User Zero-Config Setup (Recommended)
 
-1. Download **`obs-scrcpy-source-0.3.6-windows-x64-Installer.exe`** from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+1. Download **`obs-scrcpy-source-0.3.7-windows-x64-Installer.exe`** from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 2. Close OBS Studio and run the installer (all required runtimes, Apple Bonjour, Apple USB/NCM drivers, and Windows Firewall rules are configured out of the box).
 3. Prepare your phone/tablet using the [Device Setup Guide](#device-setup-guide) below, then open OBS Studio, click **`+`** under **Sources**, and add:
    - **scrcpy Device Source** for Android USB / TCP-IP capture, or
@@ -131,8 +131,8 @@ Unlike capture cards or Android `scrcpy`, Apple devices **never** start streamin
 
 | Path | Artifact / Command | Notes |
 | --- | --- | --- |
-| Windows Installer | [`obs-scrcpy-source-0.3.6-windows-x64-Installer.exe`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | Recommended zero-config install with optional checkboxes for Bonjour, Apple USB/NCM drivers & Firewall rules |
-| Portable ZIP | [`obs-scrcpy-source-0.3.6-windows-x64.zip`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | For portable OBS Studio setups; includes `redist\setup-prerequisites.ps1` |
+| Windows Installer | [`obs-scrcpy-source-0.3.7-windows-x64-Installer.exe`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | Recommended zero-config install with optional checkboxes for Bonjour, Apple USB/NCM drivers & Firewall rules |
+| Portable ZIP | [`obs-scrcpy-source-0.3.7-windows-x64.zip`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | For portable OBS Studio setups; includes `redist\setup-prerequisites.ps1` |
 | Source development | `.\scripts\configure-build.ps1 -Build` then `.\scripts\install-global-plugin.ps1` | Automatically fetches OBS 32.1.2 & FFmpeg 8.0.1 SDK headers/libs |
 | GHCR OCI package | `ghcr.io/spectralav/mobile-game-streamer-toolkit:latest` | Lightweight OCI artifact containing compiled Windows x64 plugin & helper binaries |
 
@@ -140,8 +140,8 @@ GHCR package tags:
 
 ```text
 ghcr.io/spectralav/mobile-game-streamer-toolkit:latest
-ghcr.io/spectralav/mobile-game-streamer-toolkit:0.3.6
-ghcr.io/spectralav/mobile-game-streamer-toolkit:v0.3.6
+ghcr.io/spectralav/mobile-game-streamer-toolkit:0.3.7
+ghcr.io/spectralav/mobile-game-streamer-toolkit:v0.3.7
 ```
 
 ## Capabilities
@@ -211,7 +211,7 @@ The plugin enforces a strict **session-only driver lifecycle** so your iPhone al
 
 | Milestone | Goal |
 | --- | --- |
-| `0.3.x` | Native `scrcpy 4.1` + AirPlay 2 sources, zero-config Windows installer with Bonjour & Apple WHQL drivers, and session-only iPhone USB Reverse Tethering (**Current: `v0.3.6`**) |
+| `0.3.x` | Native `scrcpy 4.1` + AirPlay 2 sources, zero-config Windows installer with Bonjour & Apple WHQL drivers, and session-only iPhone USB Reverse Tethering (**Current: `v0.3.7`**) |
 | `0.4.x` | Multi-device iPhone USB selector, explicit AirPlay network adapter binding, and richer in-OBS diagnostics |
 | `0.5.x` | Zero-copy `D3D11` GPU shared texture output into OBS graphics (`gs_texture_t`) for minimal 4K60 overhead |
 | `0.8.x` | Authenticode-signed plugin/helper/installer binaries and automated loopback integration tests |
