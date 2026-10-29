@@ -12,25 +12,44 @@ All necessary runtime files and system drivers have been installed out of the bo
   - Apple Mobile Device Support + WHQL Apple USB/NCM & signed libusb0 drivers
   - Windows Defender Firewall inbound rules for OBS AirPlay & mDNS
 
-1. How to add Android scrcpy Source:
-   - In OBS Studio, click the '+' button under the Sources list.
-   - Select "scrcpy Device Source".
-   - The scrcpy executable path defaults to:
-     C:\Program Files\scrcpy\4.1\scrcpy.exe
-   - Connect your Android phone via USB with USB Debugging enabled.
-   - Click "Refresh devices" and select your phone from the list.
-   - The plugin decodes the stream directly using hardware acceleration
-     (D3D11VA) without opening an external capture window!
+1. How to set up Android (scrcpy Device Source - Requires USB Debugging):
+   Step A - Prepare your Android phone (one-time setup):
+   - Unlock hidden Developer options: open Settings -> About phone and tap
+     "Build number" 7 times quickly (Xiaomi HyperOS/MIUI: tap "OS version" or
+     "MIUI version"; OnePlus/OPPO/Realme: About device -> Version -> Version
+     number; Samsung: About phone -> Software information -> Build number).
+   - Samsung One UI 6+ note: if USB debugging is grayed out, go to Settings ->
+     Security and privacy -> Auto Blocker and turn Auto Blocker OFF first.
+   - Open Settings -> System (or Additional settings) -> Developer options and
+     turn ON "USB debugging".
+   - Connect your phone with a USB DATA cable (not a charge-only cable), keep
+     the screen unlocked, check "Always allow from this computer", and tap
+     "Allow" on the "Allow USB debugging?" popup.
 
-2. How to add Apple AirPlay Source:
-   - Click the '+' button under Sources and select "Apple AirPlay Source".
-   - Name your receiver (e.g. "OBS AirPlay").
-   - On your iPhone, iPad, or Mac, open Control Center -> Screen Mirroring.
-   - Select your receiver name to stream video and audio directly into OBS.
-   - Optional: Enable "iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)"
-     in the source properties to mirror over a USB cable without Wi-Fi lag
-     (unlock your iPhone and tap "Trust" when prompted on first connection).
-     When USB Reverse Tethering is unchecked or OBS is closed, your iPhone
+   Step B - Add in OBS Studio:
+   - Click '+' under Sources -> select "scrcpy Device Source".
+   - Click "Refresh devices" and select your phone (default scrcpy path:
+     C:\Program Files\scrcpy\4.1\scrcpy.exe).
+   - Video and audio decode directly in OBS via GPU hardware acceleration
+     (D3D11VA) without opening an external desktop window!
+
+2. How to set up Apple iPhone / iPad / Mac (Apple AirPlay Source):
+   Apple devices start streaming from the quick settings bar (Control Center):
+   - In OBS Studio, click '+' under Sources -> "Apple AirPlay Source".
+   - Check "Enable AirPlay receiver" (default name: "OBS AirPlay") and click OK.
+   - Option A (Wireless 5 GHz Wi-Fi / LAN): connect your Apple device and PC to
+     the same network (avoid Guest Wi-Fi).
+   - Option B (Zero-Lag USB Cable): plug in your iPhone via USB cable, unlock
+     the screen, tap "Trust" if prompted, and check "Enable iPhone USB Reverse
+     Tethering" in the AirPlay source properties until USB Status is Active.
+   - Start Screen Mirroring on your Apple device:
+     * iPhone (Face ID) & iPad: swipe DOWN from the top-right corner of the
+       screen to open Control Center (quick settings bar).
+     * iPhone SE / Home-button models: swipe UP from the bottom edge.
+     * Mac: click Control Center (two pill toggles) in the top-right menu bar.
+     Tap the "Screen Mirroring" icon (two overlapping rectangles) and select
+     "OBS AirPlay" (needed for both Wi-Fi and USB Reverse Tethering modes!).
+   - When USB Reverse Tethering is unchecked or OBS is closed, your iPhone
      automatically uses 100% unmodified Apple USB drivers (Photos, File
      Explorer, iTunes, and Apple Devices work normally).
 

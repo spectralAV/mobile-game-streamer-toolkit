@@ -613,6 +613,9 @@ obs_properties_t *scrcpy_source_get_properties(void *data)
   obs_properties_add_button2(props, "restart_stream",
                              obs_module_text("ScrcpySource.RestartStream"),
                              restart_stream_clicked, data);
+  obs_properties_add_text(props, "device_setup_help",
+                          obs_module_text("ScrcpySource.DeviceSetupHelp"),
+                          OBS_TEXT_INFO);
 
   obs_property_t *connection =
       obs_properties_add_list(props, "connection_mode",

@@ -21,6 +21,7 @@
 
 <p align="center">
   <a href="#quickstart">Quickstart</a> |
+  <a href="#device-setup-guide">Device Setup</a> |
   <a href="#install-options">Install Options</a> |
   <a href="#capabilities">Capabilities</a> |
   <a href="#iphone-usb-reverse-tethering">USB Tethering</a> |
@@ -54,7 +55,7 @@ Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architectur
 
 1. Download **`obs-scrcpy-source-0.3.6-windows-x64-Installer.exe`** from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 2. Close OBS Studio and run the installer (all required runtimes, Apple Bonjour, Apple USB/NCM drivers, and Windows Firewall rules are configured out of the box).
-3. Open OBS Studio, click **`+`** under **Sources**, and add:
+3. Prepare your phone/tablet using the [Device Setup Guide](#device-setup-guide) below, then open OBS Studio, click **`+`** under **Sources**, and add:
    - **scrcpy Device Source** for Android USB / TCP-IP capture, or
    - **Apple AirPlay Source** for iPhone, iPad, or Mac screen mirroring (over 5 GHz Wi-Fi or direct USB Reverse Tethering).
 
@@ -73,7 +74,58 @@ Install the built plugin into your local OBS Studio installation (close OBS Stud
 .\scripts\install-global-plugin.ps1
 ```
 
-For full setup details, see [Installing Mobile Game Streamer Toolkit](docs/installing-toolkit.md).
+For full setup and troubleshooting details, see [Installing Mobile Game Streamer Toolkit](docs/installing-toolkit.md).
+
+## Device Setup Guide
+
+Mobile operating systems block external screen capture by default for security. Complete this quick setup on your device so OBS Studio can receive gameplay video and audio:
+
+### 1. Android Setup (`scrcpy Device Source` — Requires USB Debugging)
+
+`scrcpy` communicates with Android over **ADB (`Android Debug Bridge`)**, which requires unlocking hidden **Developer options** and turning on **USB debugging** once on your phone:
+
+1. **Unlock hidden Developer options**:
+   Open **Settings** on your Android phone, locate your build/OS version entry in the table below, **tap it 7 times quickly**, and enter your lock-screen PIN/pattern when prompted until you see *"You are now a developer!"*.
+
+   | Phone Brand | Where to tap 7 times | Where Developer options appears | Brand-specific note |
+   | --- | --- | --- | --- |
+   | **Google Pixel / Stock Android** | `Settings -> About phone -> Build number` | `Settings -> System -> Developer options` | — |
+   | **Samsung Galaxy (One UI)** | `Settings -> About phone -> Software information -> Build number` | `Settings -> Developer options` (at the bottom of Settings) | On **One UI 6+**, if **USB debugging** is grayed out, open `Settings -> Security and privacy -> Auto Blocker` and turn **Auto Blocker OFF** |
+   | **Xiaomi / POCO / Redmi (HyperOS / MIUI)** | `Settings -> About phone -> OS version` *(or `MIUI version`)* | `Settings -> Additional settings -> Developer options` | Only standard **USB debugging** is needed (read-only capture does **not** require *USB debugging (Security settings)*) |
+   | **OnePlus / OPPO / Realme / ASUS ROG** | `Settings -> About device -> Version -> Version number` *(ROG: `Software information -> Build number`)* | `Settings -> Additional settings` *(or `System`)* `-> Developer options` | Turn on **Disable adb authorization timeout** if available so permission stays permanent |
+
+2. **Turn ON USB debugging**:
+   Open **Developer options**, scroll down to **Debugging**, toggle **USB debugging** **ON**, and tap **OK** to confirm.
+3. **Connect via USB data cable & tap Allow**:
+   - Plug your phone into your PC using a **USB data cable** *(many power-bank or accessory cables are charge-only and have no data wires)*.
+   - Keep your phone **unlocked**, check **"Always allow from this computer"**, and tap **Allow** on the **"Allow USB debugging?"** popup. *(If no popup appears, swipe down your notification shade, tap the USB charging notification, and switch USB mode to **File Transfer / Android Auto** or **PTP**.)*
+4. **Select your phone in OBS Studio**:
+   - Add **scrcpy Device Source**, click **Refresh devices**, and choose your phone under **Device serial** (or leave on `Auto USB device`).
+   - *Optional Wireless (`TCP/IP`) mode*: Once authorized over USB, run `"C:\Program Files\scrcpy\4.1\adb.exe" tcpip 5555` (or enable **Wireless debugging**), set **Connection** to `TCP/IP`, and enter `<phone-ip>:5555`.
+
+### 2. Apple iPhone / iPad / Mac Setup (`Apple AirPlay Source` — Control Center Screen Mirroring)
+
+Unlike capture cards or Android `scrcpy`, Apple devices **never** start streaming automatically just from plugging in a cable or adding the OBS source. You always start the stream from your Apple device's **Control Center (quick settings bar)** using **Screen Mirroring**:
+
+#### Option A — Wireless AirPlay (5 GHz Wi-Fi / LAN)
+
+1. Connect your iPhone/iPad/Mac and your Windows PC to the **same local network** (5 GHz Wi-Fi or wired Ethernet on the same router/subnet; avoid isolated "Guest" Wi-Fi networks).
+2. In OBS Studio, add **Apple AirPlay Source**, check **Enable AirPlay receiver**, and click **OK** (default receiver name: **`OBS AirPlay`**).
+3. Open **Control Center (quick settings bar)** on your Apple device:
+   - **iPhone (Face ID) & modern iPad**: **Swipe down from the top-right corner** of the screen (where the battery and Wi-Fi icons sit).
+   - **iPhone SE / Home-button models**: **Swipe up from the bottom edge** of the screen.
+   - **Mac (macOS)**: Click the **Control Center** icon (two pill toggles) in the top-right menu bar.
+4. Tap the **Screen Mirroring** button *(icon with two overlapping rectangles)* and tap **`OBS AirPlay`**. Gameplay video and audio will appear in OBS immediately.
+
+#### Option B — Zero-Lag USB Cable (iPhone USB Reverse Tethering)
+
+1. Plug your iPhone into your PC with a Lightning or USB-C data cable, **unlock the iPhone**, and tap **Trust** (plus enter your passcode) if **"Trust This Computer?"** appears.
+2. In OBS Studio, open **Apple AirPlay Source** properties and check **both**:
+   - **Enable AirPlay receiver**
+   - **Enable iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)**
+3. Wait 3–5 seconds (click **Refresh USB Status** to confirm status is **`Active`** — your iPhone now uses a private direct USB Ethernet tunnel to your PC).
+4. **Start Screen Mirroring on your iPhone**: Even over USB cable, **swipe down from the top-right corner** of your iPhone to open **Control Center (quick settings bar)** -> tap **Screen Mirroring** (two overlapping rectangles) -> select **`OBS AirPlay`**.
+5. **To stop streaming**: Open **Control Center -> Screen Mirroring -> Stop Mirroring**. Uncheck **Enable iPhone USB Reverse Tethering** (or close OBS) to immediately revert your iPhone to stock Apple USB mode.
 
 ## Install Options
 
