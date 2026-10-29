@@ -158,7 +158,8 @@ std::string detect_scrcpy_server_version(const ScrcpySettings &settings) {
 }
 
 bool run_process_wait(const std::vector<std::string> &args, DWORD *exit_code,
-                      DWORD timeout_ms = 10000) {
+                      DWORD timeout_ms = 10000,
+                      const std::atomic<bool> *stopping = nullptr) {
   std::string command = join_command(args);
   std::vector<char> mutable_command(command.begin(), command.end());
   mutable_command.push_back('\0');
@@ -173,7 +174,27 @@ bool run_process_wait(const std::vector<std::string> &args, DWORD *exit_code,
     return false;
   }
 
-  const DWORD wait = WaitForSingleObject(pi.hProcess, timeout_ms);
+  DWORD elapsed = 0;
+  DWORD wait = WAIT_TIMEOUT;
+  while (elapsed < timeout_ms) {
+    if (stopping && stopping->load()) {
+      TerminateProcess(pi.hProcess, 1);
+      WaitForSingleObject(pi.hProcess, 200);
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      if (exit_code) {
+        *exit_code = 1;
+      }
+      return false;
+    }
+    const DWORD slice = std::min<DWORD>(100, timeout_ms - elapsed);
+    wait = WaitForSingleObject(pi.hProcess, slice);
+    if (wait != WAIT_TIMEOUT) {
+      break;
+    }
+    elapsed += slice;
+  }
+
   DWORD code = 1;
   if (wait == WAIT_TIMEOUT) {
     TerminateProcess(pi.hProcess, ERROR_TIMEOUT);
@@ -1345,10 +1366,12 @@ bool ScrcpyRuntime::prepare_server_socket() {
 bool ScrcpyRuntime::run_adb_checked(const std::vector<std::string> &args,
                                     const char *label) {
   DWORD exit_code = 1;
-  bool ok = run_process_wait(args, &exit_code);
+  bool ok = run_process_wait(args, &exit_code, 10000, &stopping_);
   if (!ok || exit_code != 0) {
-    blog(LOG_ERROR, "[obs-scrcpy-source] %s failed (exit %lu): %s", label,
-         static_cast<unsigned long>(exit_code), join_command(args).c_str());
+    if (!stopping_) {
+      blog(LOG_ERROR, "[obs-scrcpy-source] %s failed (exit %lu): %s", label,
+           static_cast<unsigned long>(exit_code), join_command(args).c_str());
+    }
     return false;
   }
   return true;

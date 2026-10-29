@@ -1,5 +1,6 @@
 #include "airplay-source.h"
 #include "scrcpy-source.h"
+#include "iphone-tether-client.h"
 
 #include <obs-module.h>
 
@@ -114,4 +115,9 @@ bool obs_module_load(void)
   blog(LOG_INFO,
        "[obs-scrcpy-source] loaded (scrcpy source + AirPlay source)");
   return true;
+}
+
+void obs_module_unload(void)
+{
+  IPhoneTetherClient::Instance().OnObsShutdown();
 }

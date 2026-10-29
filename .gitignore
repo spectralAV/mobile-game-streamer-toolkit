@@ -11,3 +11,4 @@ cmake/.CMakeBuildNumber
 *.mp4
 *.obj
 debug-*.log
+release/

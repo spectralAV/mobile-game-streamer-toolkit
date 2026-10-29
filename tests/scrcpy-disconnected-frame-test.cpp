@@ -42,6 +42,9 @@ int main() {
   verify_frame(320, 180);
   verify_frame(180, 320);
   verify_frame(1280, 720);
+  verify_frame(1920, 1080);
+  verify_frame(2560, 1440);
+  verify_frame(1440, 2560);
 
   expect(make_scrcpy_disconnected_frame(0, 720).bgra.empty(),
          "zero-width canvases are rejected");

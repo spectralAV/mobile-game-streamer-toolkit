@@ -41,10 +41,11 @@ launch `AirPlayServer.exe` or capture a window.
 
 The plugin does not capture a scrcpy window. It runs the scrcpy server in read-only mode, receives encoded packets, decodes them with FFmpeg/libavcodec, then pushes raw frames and audio into OBS via `obs_source_output_video()` and `obs_source_output_audio()`.
 
-AirPlay receiver startup is deferred while OBS restores a scene collection.
-Use **Restart receiver** in the AirPlay source properties to start it explicitly.
-This prevents a failure inside the external AirPlay runtime from taking down OBS
-during application startup.
+AirPlay receiver startup is fully integrated into OBS scene lifecycle. With the
+hardened native MSVC runtime (v1.2.5), headless H.264 decoding with Annex B SPS/PPS
+parameter caching, and contiguous frame memory protection, enabled sources start
+cleanly without risking OBS crashes during startup. Explicit **Restart receiver** is
+also available in source properties.
 
 When `Send frames to MLBB CoPilot CV bridge` is enabled, a background latest-frame worker publishes throttled raw BGRA samples to `http://127.0.0.1:8787/api/capture/obs/frame.raw`. This allows CoPilot to analyze the same source OBS is rendering without blocking OBS output or opening a second scrcpy session.
 
@@ -155,20 +156,41 @@ Configure and build:
 
 The convenience script sets `OBS_PLUGIN_SKIP_DEPENDENCY_SETUP=ON` and points CMake at the local OBS 32.1.2 SDK shim generated from the installed OBS runtime. The project structure remains compatible with the official template flow for future CI/distribution work.
 
-This machine uses the global OBS plugin location as the authoritative install.
-Do not also install the plugin per-user, because duplicate copies make it
-unclear which DLL OBS loads.
+## Packaging and Installer
 
-Install globally from an elevated PowerShell (**close OBS first**, or the DLL will be locked):
+The repository includes a production-ready Windows Inno Setup installer and portable ZIP package builder that bundle all dependencies required for the plugin to work out of the box:
+
+- **OBS Plugin Binary & Symbols**: `obs-scrcpy-source.dll`, `obs-scrcpy-source.pdb`
+- **FFmpeg 8.0.1 Runtime**: `avcodec-62.dll`, `avutil-60.dll`, `swresample-6.dll` (full shared build with D3D11VA hardware acceleration)
+- **scrcpy 4.1 Runtime & ADB**: Full scrcpy 4.1 runtime and tools installed to `C:\Program Files\scrcpy\4.1\` (matching default plugin config)
+- **Apple AirPlay 2 & USB Reverse Tethering Runtime**: `airplay2dll.dll` (v1.2.5 native MSVC), `swscale-9.dll`, `obs-airplay-tether-helper.exe`, `obs-airplay-tether-helper.pdb`, and `libusb0.dll` (obsolete MSYS2/Cygwin `msys-2.0.dll` completely eliminated)
+- **Localization & Assets**: `data\obs-plugins\obs-scrcpy-source\locale\`
+
+### Build Installer & Portable Release Package
+
+To compile the standalone Windows Installer (`.exe`) and portable archive (`.zip`):
+
+```powershell
+.\scripts\build-installer.ps1
+```
+
+Or force a fresh rebuild before packaging:
+
+```powershell
+.\scripts\build-installer.ps1 -Build
+```
+
+Generated release artifacts in `release\`:
+
+- `release\obs-scrcpy-source-0.3.4-windows-x64-Installer.exe` — Self-contained Windows installer with auto-detection of OBS Studio, running process check (`obs64.exe` / `scrcpy.exe`), component selection, and clean uninstallation in Windows Settings -> Apps.
+- `release\obs-scrcpy-source-0.3.4-windows-x64.zip` — Portable release package for portable OBS Studio installations.
+
+### Installing Globally via Script
+
+You can also install directly from source in PowerShell (**close OBS Studio first**):
 
 ```powershell
 .\scripts\install-global-plugin.ps1
-```
-
-To also copy AirPlayServer runtime DLLs during install:
-
-```powershell
-.\scripts\install-global-plugin.ps1 -AirPlayRuntimeDir "C:\path\to\AirPlayServer\runtime"
 ```
 
 This copies the DLL to:
@@ -177,7 +199,7 @@ This copies the DLL to:
 C:\Program Files\obs-studio\obs-plugins\64bit
 ```
 
-The locale/resources are installed from the official template-style `data` folder to:
+The locale/resources are installed to:
 
 ```text
 C:\Program Files\obs-studio\data\obs-plugins\obs-scrcpy-source

@@ -58,7 +58,16 @@
       },
       "generator": "Visual Studio 18 2026",
       "architecture": "x64",
-      "warnings": {"dev": true, "deprecated": true}
+      "warnings": {"dev": true, "deprecated": true},
+      "cacheVariables": {
+        "OBS_PLUGIN_SKIP_DEPENDENCY_SETUP": true,
+        "libobs_DIR": "${sourceDir}/vendor/obs-sdk-32.1.2/lib/cmake/libobs",
+        "FFMPEG_INCLUDE_DIR": "${sourceDir}/vendor/ffmpeg-8.0.1-full_build-shared/include",
+        "AVCODEC_LIB": "${sourceDir}/vendor/ffmpeg-sdk-8.0.1/lib/avcodec-62.lib",
+        "AVUTIL_LIB": "${sourceDir}/vendor/ffmpeg-sdk-8.0.1/lib/avutil-60.lib",
+        "SWRESAMPLE_LIB": "${sourceDir}/vendor/ffmpeg-sdk-8.0.1/lib/swresample-6.lib",
+        "SCRCPY_PACKAGE_DIR": "C:/Program Files/scrcpy/4.1"
+      }
     },
     {
       "name": "windows-ci-x64",

@@ -80,16 +80,25 @@ option, so the delay is applied to OBS audio timestamps locally.
 ## Apple AirPlay source
 
 The plugin also registers `Apple AirPlay Source` with source id
-`obs_airplay_source`. It dynamically loads `airplay2dll.dll`, starts
-`fgServerStart()` with the configured receiver name and ports, implements the
-AirPlayServer callback interface, filters callbacks to one active Apple device,
-and maps `SFgVideoFrame`/`SFgAudioFrame` payloads directly to OBS async video
-and audio frames.
+`obs_airplay_source`. It dynamically loads `airplay2dll.dll` (AirPlayServer
+v1.2.5 pure native MSVC build), starts headless streaming via
+`fgServerStartHeadless()` (or fallback `fgServerStart()`), and implements the
+13-method `IAirServerCallback` interface.
 
-Receiver startup is deliberately deferred during scene restoration. The bundled
-third-party AirPlay runtime has previously faulted in its video worker, so only
-an explicit **Restart receiver** action may enter `fgServerStart()`; this keeps a
-saved enabled source from creating an OBS startup crash loop.
+Video delivery uses a dual-path architecture:
+1. **Headless H.264 Access Units**: `outputH264AccessUnit()` delivers raw NAL units.
+   Annex B SPS (type 7) and PPS (type 8) parameter sets are cached and prepended to
+   incoming keyframes (IDR slices) to prevent decoder state resets and `AVERROR_INVALIDDATA`
+   rejections. Frames are decoded in OBS via low-latency `libavcodec` software decoding
+   and published to `obs_source_output_video()`.
+2. **Decoded Frame Fallback**: `outputVideo()` packs strided I420 planes into a
+   contiguous memory buffer before invoking `obs_source_output_video()`, eliminating
+   access violation crashes in `obs.dll!copy_frame_data_plane`.
+
+The runtime uses Windows BCrypt and native MSVC threading, completely eliminating
+legacy `msys-2.0.dll` TLS conflict crashes. The DLL handle remains resident across
+source restarts to prevent worker thread teardown races. Enabled sources start
+automatically on OBS scene load without requiring deferred startup workarounds.
 
 This source is screen/audio capture only. AirPlay media URL playback callbacks
 are no-ops and are logged as unsupported.

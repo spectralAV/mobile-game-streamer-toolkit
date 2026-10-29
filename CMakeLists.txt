@@ -13,13 +13,46 @@ include(helpers)
 
 add_library(${CMAKE_PROJECT_NAME} MODULE)
 
+if(NOT DEFINED OBS_PLUGIN_SKIP_DEPENDENCY_SETUP)
+  set(OBS_PLUGIN_SKIP_DEPENDENCY_SETUP ON CACHE BOOL "Skip official dependency setup")
+endif()
+
+if(NOT libobs_DIR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/obs-sdk-32.1.2/lib/cmake/libobs")
+  set(libobs_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/obs-sdk-32.1.2/lib/cmake/libobs" CACHE PATH "Path to libobs CMake package")
+endif()
+
 find_package(libobs REQUIRED)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE OBS::libobs)
 
-set(FFMPEG_INCLUDE_DIR "" CACHE PATH "Directory containing FFmpeg headers")
-set(AVCODEC_LIB "" CACHE FILEPATH "Path to avcodec import library")
-set(AVUTIL_LIB "" CACHE FILEPATH "Path to avutil import library")
-set(SWRESAMPLE_LIB "" CACHE FILEPATH "Path to swresample import library")
+# Auto-detect vendored FFmpeg dependencies if not explicitly provided
+if((NOT FFMPEG_INCLUDE_DIR OR NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h") AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-8.0.1-full_build-shared/include/libavcodec/avcodec.h")
+  set(FFMPEG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-8.0.1-full_build-shared/include" CACHE PATH "Directory containing FFmpeg headers" FORCE)
+else()
+  set(FFMPEG_INCLUDE_DIR "" CACHE PATH "Directory containing FFmpeg headers")
+endif()
+
+if((NOT AVCODEC_LIB OR NOT EXISTS "${AVCODEC_LIB}") AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-sdk-8.0.1/lib/avcodec-62.lib")
+  set(AVCODEC_LIB "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-sdk-8.0.1/lib/avcodec-62.lib" CACHE FILEPATH "Path to avcodec import library" FORCE)
+else()
+  set(AVCODEC_LIB "" CACHE FILEPATH "Path to avcodec import library")
+endif()
+
+if((NOT AVUTIL_LIB OR NOT EXISTS "${AVUTIL_LIB}") AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-sdk-8.0.1/lib/avutil-60.lib")
+  set(AVUTIL_LIB "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-sdk-8.0.1/lib/avutil-60.lib" CACHE FILEPATH "Path to avutil import library" FORCE)
+else()
+  set(AVUTIL_LIB "" CACHE FILEPATH "Path to avutil import library")
+endif()
+
+if((NOT SWRESAMPLE_LIB OR NOT EXISTS "${SWRESAMPLE_LIB}") AND
+   EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-sdk-8.0.1/lib/swresample-6.lib")
+  set(SWRESAMPLE_LIB "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ffmpeg-sdk-8.0.1/lib/swresample-6.lib" CACHE FILEPATH "Path to swresample import library" FORCE)
+else()
+  set(SWRESAMPLE_LIB "" CACHE FILEPATH "Path to swresample import library")
+endif()
+
 set(SCRCPY_PACKAGE_DIR "C:/Program Files/scrcpy/4.1" CACHE PATH "scrcpy package directory")
 
 if(NOT EXISTS "${FFMPEG_INCLUDE_DIR}/libavcodec/avcodec.h")
@@ -36,6 +69,7 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.cpp
+    src/airplay-h264.cpp
     src/airplay-log-filter.cpp
     src/airplay-runtime.cpp
     src/airplay-source.cpp
@@ -46,6 +80,7 @@ target_sources(
     src/scrcpy-runtime.cpp
     src/scrcpy-settings.cpp
     src/scrcpy-source.cpp
+    src/airplay-h264.h
     src/airplay-log-filter.h
     src/airplay-runtime.h
     src/airplay-source.h
@@ -56,9 +91,19 @@ target_sources(
     src/scrcpy-runtime.h
     src/scrcpy-settings.h
     src/scrcpy-source.h
+    src/iphone-tether.h
+    src/iphone-tether.cpp
+    src/iphone-tether-client.h
+    src/iphone-tether-client.cpp
 )
 
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${FFMPEG_INCLUDE_DIR}" src)
+target_include_directories(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE
+    "${FFMPEG_INCLUDE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/libusb-win32/include"
+    src
+)
 
 target_link_libraries(
   ${CMAKE_PROJECT_NAME}
@@ -67,11 +112,44 @@ target_link_libraries(
     "${AVUTIL_LIB}"
     "${SWRESAMPLE_LIB}"
     Ws2_32
+    iphlpapi
+    cfgmgr32
+    advapi32
+    ole32
+    oleaut32
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
+
+add_executable(
+  obs-airplay-tether-helper
+  src/iphone-tether-helper.cpp
+  src/iphone-tether.cpp
+  src/iphone-tether.h
+)
+target_include_directories(
+  obs-airplay-tether-helper
+  PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/vendor/libusb-win32/include"
+    src
+)
+target_link_libraries(
+  obs-airplay-tether-helper
+  PRIVATE
+    iphlpapi
+    cfgmgr32
+    advapi32
+    ole32
+    oleaut32
+    Ws2_32
+)
+target_compile_definitions(obs-airplay-tether-helper PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+set_target_properties(obs-airplay-tether-helper PROPERTIES
+  WIN32_EXECUTABLE TRUE
+  LINK_FLAGS "/SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup"
+)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -122,4 +200,12 @@ if(BUILD_TESTING)
   )
   target_include_directories(airplay-log-filter-test PRIVATE src)
   add_test(NAME airplay-log-filter-test COMMAND airplay-log-filter-test)
+
+  add_executable(
+    airplay-h264-test
+    tests/airplay-h264-test.cpp
+    src/airplay-h264.cpp
+  )
+  target_include_directories(airplay-h264-test PRIVATE src)
+  add_test(NAME airplay-h264-test COMMAND airplay-h264-test)
 endif()

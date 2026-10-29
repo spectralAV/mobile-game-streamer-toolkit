@@ -1,0 +1,39 @@
+===================================================================
+               OBS scrcpy Source Plugin - Quick Start
+===================================================================
+
+Thank you for installing the OBS scrcpy Source Plugin!
+
+All necessary runtime files have been installed, including:
+  - OBS scrcpy source plugin with hardware-accelerated FFmpeg decoding (D3D11VA)
+  - scrcpy 4.1 runtime & ADB tools (installed to C:\Program Files\scrcpy\4.1)
+  - Apple AirPlay 2 receiver runtime & iPhone USB Reverse Tethering helper
+
+1. How to add Android scrcpy Source:
+   - In OBS Studio, click the '+' button under the Sources list.
+   - Select "scrcpy Device Source".
+   - The scrcpy executable path defaults to:
+     C:\Program Files\scrcpy\4.1\scrcpy.exe
+   - Connect your Android phone via USB with USB Debugging enabled.
+   - Click "Refresh devices" and select your phone from the list.
+   - The plugin decodes the stream directly using hardware acceleration
+     (D3D11VA) without opening an external capture window!
+
+2. How to add Apple AirPlay Source:
+   - Click the '+' button under Sources and select "Apple AirPlay Source".
+   - Name your receiver (e.g. "OBS AirPlay").
+   - On your iPhone, iPad, or Mac, open Control Center -> Screen Mirroring.
+   - Select your receiver name to stream video and audio directly into OBS.
+   - Optional: Enable "iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)"
+     in the source properties to mirror over a USB cable without Wi-Fi lag.
+   - Note: Bonjour for Windows (or iTunes) is required for AirPlay discovery.
+
+3. Low Latency Streaming Tips:
+   - Audio buffer: set to 0 ms for lowest latency.
+   - Video encoder: Leave on Auto or pick a hardware encoder
+     (e.g., c2.google.avc.encoder or c2.qti.avc.encoder).
+   - For AirPlay, ensure your PC and iOS device are on the same 5 GHz Wi-Fi.
+
+To uninstall:
+   Go to Windows Settings -> Apps -> Installed apps -> OBS scrcpy Source Plugin.
+===================================================================
