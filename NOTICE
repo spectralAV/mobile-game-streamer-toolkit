@@ -1,0 +1,31 @@
+Mobile Game Streamer Toolkit (obs-scrcpy-source)
+Copyright 2026 SpectralAV
+
+This product includes software developed by SpectralAV (https://github.com/spectralAV).
+
+Mobile Game Streamer Toolkit is an independent open-source OBS Studio input plugin
+project. It is not affiliated with, endorsed by, sponsored by, or approved by
+Apple Inc., Google LLC, Genymobile, or the OBS Project.
+
+Apple, AirPlay, Bonjour, iPhone, iPad, macOS, iTunes, Android, OBS Studio, and
+related product names, logos, and trademarks are the property of their
+respective owners. References to those platforms and protocols are used solely
+for interoperability and hardware/protocol compatibility.
+
+Third-party software dependencies and redistributable components retain their
+own copyright notices and license terms and are not relicensed by this project:
+
+- Genymobile scrcpy and scrcpy-server are governed by the Apache License 2.0.
+- Android Platform Tools (adb) are governed by the Apache License 2.0 and
+  applicable Android SDK terms.
+- OBS Studio headers and libobs plugin interfaces are governed by the GNU
+  General Public License v2.0 or later (GPL-2.0-or-later); combined binary
+  plugin distributions linking against libobs remain subject to OBS Studio's
+  applicable GPL terms where required.
+- FFmpeg (libavcodec, libavutil, libswresample, libswscale) is governed by the
+  LGPL v2.1+ or GPL v2+/v3+ depending on the linked runtime build configuration.
+- libusb-win32 (lusb0_usb.h, libusb0.dll, libusb0.sys) is governed by the
+  GNU Lesser General Public License v2.1+ (LGPL-2.1-or-later) / GPL-2.0-or-later.
+- AirPlayServer / airplay2dll runtime components and bundled Apple system
+  redistributables (Bonjour, Apple Mobile Device Support, and WHQL USB/NCM
+  drivers) remain governed by their respective upstream terms.

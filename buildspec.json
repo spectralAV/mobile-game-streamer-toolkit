@@ -30,13 +30,13 @@
   },
   "platformConfig": {
     "macos": {
-      "bundleId": "com.rokas.obs-scrcpy-source"
+      "bundleId": "eu.spectralav.obs-scrcpy-source"
     }
   },
   "name": "obs-scrcpy-source",
   "displayName": "OBS scrcpy Source",
   "version": "0.3.6",
-  "author": "Rokas",
-  "website": "https://github.com/Genymobile/scrcpy",
-  "email": "noreply@example.com"
+  "author": "spectralAV",
+  "website": "https://github.com/spectralAV/mobile-game-streamer-toolkit",
+  "email": "git@spectralav.eu"
 }

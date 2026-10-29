@@ -1,229 +1,188 @@
-# OBS scrcpy source plugin
+<p align="center">
+  <img src="assets/toolkit-icon.png" width="128" alt="Mobile Game Streamer Toolkit icon">
+</p>
 
-Native OBS Studio input source for a read-only, headless scrcpy stream.
+<h1 align="center">Mobile Game Streamer Toolkit</h1>
 
-Target local runtime:
+<p align="center">
+  <strong>Native OBS Studio input plugin for low-latency Android <code>scrcpy</code> capture, Apple AirPlay 2 screen mirroring, and session-only iPhone USB Reverse Tethering.</strong>
+</p>
 
-- OBS Studio: `C:\Program Files\obs-studio\bin\64bit\obs64.exe`
-- scrcpy: `C:\Program Files\scrcpy\4.1\scrcpy.exe`
-- Verified device: `59081FDCH002B8` / Pixel 10 Pro
+<p align="center">
+  <a href="https://github.com/spectralAV/mobile-game-streamer-toolkit/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/spectralAV/mobile-game-streamer-toolkit/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/spectralAV/mobile-game-streamer-toolkit/actions/workflows/release-package.yml"><img alt="Release & GHCR Package" src="https://github.com/spectralAV/mobile-game-streamer-toolkit/actions/workflows/release-package.yml/badge.svg"></a>
+  <a href="https://github.com/spectralAV/mobile-game-streamer-toolkit/releases"><img alt="Release" src="https://img.shields.io/github/v/release/spectralAV/mobile-game-streamer-toolkit?include_prereleases&label=release"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+  <a href="https://streamelements.com/martianost/tip"><img alt="Tip on StreamElements" src="https://img.shields.io/badge/tip-StreamElements-9146FF"></a>
+  <img alt="OBS Studio" src="https://img.shields.io/badge/OBS%20Studio-30%2B%20%7C%2032%2B-302E31?logo=obsstudio&logoColor=white">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D4?logo=windows&logoColor=white">
+  <img alt="C++17" src="https://img.shields.io/badge/C%2B%2B-17%20%7C%20D3D11VA-00599C?logo=cplusplus&logoColor=white">
+</p>
 
-## Goal
+<p align="center">
+  <a href="#quickstart">Quickstart</a> |
+  <a href="#install-options">Install Options</a> |
+  <a href="#capabilities">Capabilities</a> |
+  <a href="#iphone-usb-reverse-tethering">USB Tethering</a> |
+  <a href="#documentation">Docs</a> |
+  <a href="#roadmap">Roadmap</a> |
+  <a href="#contributors">Contributors</a> |
+  <a href="#community-and-support">Support</a>
+</p>
 
-Expose OBS sources that receive device video/audio without showing external
-capture windows:
+Mobile Game Streamer Toolkit (`obs-scrcpy-source`) is a native Windows x64 OBS Studio plugin built for mobile esports creators and broadcast setups. Instead of capturing external desktop windows or dealing with Wi-Fi jitter, it decodes Android `scrcpy` sockets and Apple AirPlay 2 streams directly inside OBS Studio using hardware-accelerated FFmpeg (`D3D11VA`), outputs synchronized low-latency video and audio frames via `obs_source_output_video()` / `obs_source_output_audio()`, and optionally bridges live frames directly to [MLBB Co-Pilot](https://github.com/spectralAV/mlbb-co-pilot).
 
-- Android through scrcpy without sending control events to the device.
-- Apple devices through AirPlay screen mirroring and device audio capture.
+The project is actively progressing toward `1.0.0`. Current release: [`v0.3.6`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/tag/v0.3.6).
 
-Planned source options:
+Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap to 1.0.0](docs/roadmap-1.0.md) · [Known Limitations](docs/known-limitations.md)
 
-- Video codec: H.264, H.265, AV1, VP8, VP9
-- Video encoder override
-- Video bit rate
-- Max size and max FPS
-- Audio codec: Opus, AAC, FLAC, raw PCM
-- Audio encoder override
-- Audio bit rate
-- Audio buffering
-- Audio source
-- USB or TCP/IP device selection
-- Read-only mode, always enabled
+## Status
 
-## Current status
+| Area | Current state |
+| --- | --- |
+| Primary platform | Windows 10 / 11 (x64) with OBS Studio 30+ / 32+ |
+| Android capture | Native headless `scrcpy` 4.0 / 4.1 socket transport (`H.264`, `H.265`, `AV1`, `VP8`, `VP9` + `Opus`, `AAC`, `FLAC`, raw PCM) |
+| Apple capture | Embedded AirPlay 2 receiver (`1080p`, `1440p`, `4K`, `Portrait 2K`, `Portrait 4K`) + gameplay audio |
+| iPhone USB cable mode | Session-only CDC-NCM USB Reverse Tethering (`192.168.137.1` ICS) with full automatic revert to stock Apple drivers |
+| Zero-config installer | Inno Setup `.exe` bundling `scrcpy 4.1`, FFmpeg 8.0.1 `D3D11VA`, Apple Bonjour, Apple Mobile Device Support, WHQL USB/NCM drivers & Firewall rules |
+| Package registry | GHCR OCI plugin binary package (`ghcr.io/spectralav/mobile-game-streamer-toolkit`) |
+| CV integration | Optional background latest-frame BGRA bridge to `http://127.0.0.1:8787/api/capture/obs/frame.raw` for [MLBB Co-Pilot](https://github.com/spectralAV/mlbb-co-pilot) |
 
-This repository contains a native OBS source plugin with a direct scrcpy 4.0/4.1 socket transport. It detects the selected scrcpy package version, starts the matching Android server in read-only mode, accepts the video/audio sockets through `adb reverse`, decodes packets with FFmpeg, and outputs raw frames/audio to OBS.
+## Quickstart
 
-It also registers a separate `Apple AirPlay Source`. That source dynamically
-loads `airplay2dll.dll` from AirPlayServer, starts an embedded AirPlay receiver,
-and pushes decoded screen-mirroring video/audio callbacks into OBS. It does not
-launch `AirPlayServer.exe` or capture a window.
+### End-User Zero-Config Setup (Recommended)
 
-The plugin does not capture a scrcpy window. It runs the scrcpy server in read-only mode, receives encoded packets, decodes them with FFmpeg/libavcodec, then pushes raw frames and audio into OBS via `obs_source_output_video()` and `obs_source_output_audio()`.
+1. Download **`obs-scrcpy-source-0.3.6-windows-x64-Installer.exe`** from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+2. Close OBS Studio and run the installer (all required runtimes, Apple Bonjour, Apple USB/NCM drivers, and Windows Firewall rules are configured out of the box).
+3. Open OBS Studio, click **`+`** under **Sources**, and add:
+   - **scrcpy Device Source** for Android USB / TCP-IP capture, or
+   - **Apple AirPlay Source** for iPhone, iPad, or Mac screen mirroring (over 5 GHz Wi-Fi or direct USB Reverse Tethering).
 
-AirPlay receiver startup is fully integrated into OBS scene lifecycle. With the
-hardened native MSVC runtime (v1.2.5), headless H.264 decoding with Annex B SPS/PPS
-parameter caching, and contiguous frame memory protection, enabled sources start
-cleanly without risking OBS crashes during startup. Explicit **Restart receiver** is
-also available in source properties.
-
-When `Send frames to MLBB CoPilot CV bridge` is enabled, a background latest-frame worker publishes throttled raw BGRA samples to `http://127.0.0.1:8787/api/capture/obs/frame.raw`. This allows CoPilot to analyze the same source OBS is rendering without blocking OBS output or opening a second scrcpy session.
-
-Video presentation is asynchronous and unbuffered in OBS for realtime streaming.
-The plugin keeps the live edge without breaking decoder dependencies: when
-measured lag becomes severe, it continues decoding compressed frames while
-suppressing stale presentation. Presentation resumes as soon as the socket
-backlog and PTS drift are drained. A multi-second clock discontinuity triggers
-a clean server reconnect instead of replaying a long stale queue. AV1 prefers
-dav1d or FFmpeg's native decoder over libaom for realtime playback.
-Video and audio retain the same device PTS timeline when submitted to OBS, so
-OBS applies one timing adjustment to both streams instead of reconciling a
-video arrival clock with a separate audio clock. The configurable audio delay
-is applied on that shared timeline; the default is 0 ms. Stale audio is dropped.
-
-The project now follows the official `obs-plugintemplate` layout:
-
-- `buildspec.json` contains plugin metadata.
-- `CMakePresets.json` contains the Windows build preset.
-- `cmake/` contains the OBS template CMake helpers.
-- `data/locale/en-US.ini` contains plugin locale strings.
-- The root `CMakeLists.txt` uses `find_package(libobs REQUIRED)` and `set_target_properties_plugin()`.
-
-## Local checks
-
-Run:
+### Build From Source
 
 ```powershell
-.\scripts\validate-environment.ps1
-.\scripts\probe-encoders.ps1
+git clone https://github.com/spectralAV/mobile-game-streamer-toolkit.git
+cd mobile-game-streamer-toolkit
+.\scripts\configure-build.ps1 -Build -Configuration RelWithDebInfo
+ctest --test-dir build -C RelWithDebInfo --output-on-failure
 ```
 
-## Usage
-
-1. Build and install with `.\scripts\configure-build.ps1 -Build`, then run
-   `.\scripts\install-global-plugin.ps1` from an elevated PowerShell.
-2. Restart OBS Studio.
-3. Add source: `scrcpy Device Source`.
-4. Keep `scrcpy executable` pointed at `C:\Program Files\scrcpy\4.1\scrcpy.exe`.
-5. Select a connected ADB device from the device dropdown, or leave `Auto USB device`.
-6. Use `Refresh devices` after plugging in/unplugging a phone.
-7. Pick the video/audio codec and quality settings:
-   - **Video encoder** — dropdown from `Refresh encoders` / `scrcpy --list-encoders`. Leave on **Auto** for the device default, or pick a hardware encoder for your phone.
-   - **MediaFormat encoder options** — separate from `--list-encoders`; optional keyframe interval presets. Leave on **Device default** unless a specific encoder requires an override.
-   - **Encoder refresh** — default `0` (disabled); set a minute interval only if a particular device encoder accumulates latency over time.
-   - **Audio buffer** — use `0` for lowest latency.
-8. Enable `Send frames to MLBB CoPilot CV bridge` while the CoPilot backend is running to drive local CV from this native source.
-
-The source is always read-only. It does not expose device controls.
-
-If an ADB transport goes stale or the phone stream drops, the source reconnects
-automatically with exponential backoff up to 60 seconds. Each attempt verifies
-the selected device before deploying the server. It does not restart the global
-ADB daemon, so another device or ADB client is not disrupted. A connected
-session that does not emit its first video frame within three seconds also
-restarts automatically, so a decoder startup stall does not require the
-**Restart Stream** button.
-
-Encoder names vary by device. Run `scrcpy --list-encoders` with your phone connected. Examples:
-
-- Pixel (Tensor): H.264 `c2.google.avc.encoder`, H.265 `c2.google.hevc.encoder`
-- Pixel 4 (Qualcomm): H.264 `c2.qti.avc.encoder`, H.265 `c2.qti.hevc.encoder`
-
-Audio encoders reported:
-
-- Opus: `c2.android.opus.encoder`
-- AAC: `c2.android.aac.encoder`
-- FLAC: `c2.android.flac.encoder`
-
-## Apple AirPlay source
-
-1. Install Bonjour for Windows, or install iTunes if you prefer its bundled
-   Bonjour service.
-2. Build or download `airplay2dll.dll` from
-   `https://github.com/xenos1337/AirPlayServer`.
-3. Put `airplay2dll.dll` and its runtime DLLs next to
-   `obs-scrcpy-source.dll`, or select `airplay2dll.dll` in the source settings.
-4. Add source: `Apple AirPlay Source`.
-5. Use the default receiver name `OBS AirPlay`, or set a custom name.
-6. Open Screen Mirroring on the iPhone, iPad, or Mac and select the receiver.
-
-The first AirPlay implementation supports screen mirroring plus device audio.
-AirPlay media URL casting/playback is intentionally ignored.
-
-## Build requirements
-
-The installed OBS runtime is present, but the normal OBS installer does not include C/C++ plugin headers such as `obs.h`.
-
-Visual Studio Community 2026 is installed locally and includes MSVC plus CMake. The scripts use the bundled tools directly, so they do not need CMake or `cl.exe` on the regular PowerShell PATH.
-
-Prepare the local OBS SDK shim:
-
-```powershell
-.\scripts\setup-obs-sdk.ps1
-```
-
-Configure only:
-
-```powershell
-.\scripts\configure-build.ps1
-```
-
-Configure and build:
-
-```powershell
-.\scripts\configure-build.ps1 -Build
-```
-
-The convenience script sets `OBS_PLUGIN_SKIP_DEPENDENCY_SETUP=ON` and points CMake at the local OBS 32.1.2 SDK shim generated from the installed OBS runtime. The project structure remains compatible with the official template flow for future CI/distribution work.
-
-## Packaging and Installer
-
-The repository includes a production-ready Windows Inno Setup installer and portable ZIP package builder that bundle all dependencies required for the plugin to work out of the box:
-
-- **OBS Plugin Binary & Symbols**: `obs-scrcpy-source.dll`, `obs-scrcpy-source.pdb`
-- **FFmpeg 8.0.1 Runtime**: `avcodec-62.dll`, `avutil-60.dll`, `swresample-6.dll` (full shared build with D3D11VA hardware acceleration)
-- **scrcpy 4.1 Runtime & ADB**: Full scrcpy 4.1 runtime and tools installed to `C:\Program Files\scrcpy\4.1\` (matching default plugin config)
-- **Apple AirPlay 2 & USB Reverse Tethering Runtime**: `airplay2dll.dll` (v1.2.5 native MSVC), `swscale-9.dll`, `obs-airplay-tether-helper.exe`, `obs-airplay-tether-helper.pdb`, `libusb0.dll`, and dormant `DEMAND_START` signed `libusb0.sys` v1.4.0.2 (session-only composite filter attachment while tethering is active, automatically reverting to 100% stock Apple USB drivers when tethering stops or OBS closes)
-- **Out-of-the-Box Apple Prerequisites & Firewall Rules**: Official Apple-signed `Bonjour64.msi` (v3.1.0.1), standalone `AppleMobileDeviceSupport64.msi` (v20.0.0.35, without iTunes player bloat), WHQL `AppleUsb` & `netaapl64` drivers, and Windows Defender Firewall inbound rules for OBS Studio & mDNS
-- **Localization & Assets**: `data\obs-plugins\obs-scrcpy-source\locale\`
-
-### Build Installer & Portable Release Package
-
-To compile the standalone Windows Installer (`.exe`) and portable archive (`.zip`):
-
-```powershell
-.\scripts\build-installer.ps1
-```
-
-Or force a fresh rebuild before packaging:
-
-```powershell
-.\scripts\build-installer.ps1 -Build
-```
-
-Generated release artifacts in `release\`:
-
-- `release\obs-scrcpy-source-0.3.6-windows-x64-Installer.exe` — Self-contained Windows installer with auto-detection of OBS Studio, running process check (`obs64.exe` / `scrcpy.exe`), optional prerequisite checkboxes (Bonjour, Apple USB/NCM drivers, Firewall rules), and clean uninstallation in Windows Settings -> Apps.
-- `release\obs-scrcpy-source-0.3.6-windows-x64.zip` — Portable release package for portable OBS Studio installations.
-
-### Installing Globally via Script
-
-You can also install directly from source in PowerShell (**close OBS Studio first**):
+Install the built plugin into your local OBS Studio installation (close OBS Studio first):
 
 ```powershell
 .\scripts\install-global-plugin.ps1
 ```
 
-This copies the DLL to:
+For full setup details, see [Installing Mobile Game Streamer Toolkit](docs/installing-toolkit.md).
+
+## Install Options
+
+| Path | Artifact / Command | Notes |
+| --- | --- | --- |
+| Windows Installer | [`obs-scrcpy-source-0.3.6-windows-x64-Installer.exe`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | Recommended zero-config install with optional checkboxes for Bonjour, Apple USB/NCM drivers & Firewall rules |
+| Portable ZIP | [`obs-scrcpy-source-0.3.6-windows-x64.zip`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | For portable OBS Studio setups; includes `redist\setup-prerequisites.ps1` |
+| Source development | `.\scripts\configure-build.ps1 -Build` then `.\scripts\install-global-plugin.ps1` | Automatically fetches OBS 32.1.2 & FFmpeg 8.0.1 SDK headers/libs |
+| GHCR OCI package | `ghcr.io/spectralav/mobile-game-streamer-toolkit:latest` | Lightweight OCI artifact containing compiled Windows x64 plugin & helper binaries |
+
+GHCR package tags:
 
 ```text
-C:\Program Files\obs-studio\obs-plugins\64bit
+ghcr.io/spectralav/mobile-game-streamer-toolkit:latest
+ghcr.io/spectralav/mobile-game-streamer-toolkit:0.3.6
+ghcr.io/spectralav/mobile-game-streamer-toolkit:v0.3.6
 ```
 
-The locale/resources are installed to:
+## Capabilities
 
-```text
-C:\Program Files\obs-studio\data\obs-plugins\obs-scrcpy-source
-```
+| Capability | What it does |
+| --- | --- |
+| Headless `scrcpy` source | Deploys `scrcpy-server` in read-only mode over `adb reverse`, decodes compressed video/audio directly in OBS without spawning a desktop window |
+| Hardware-accelerated decode | Uses FFmpeg 8.0.1 `D3D11VA` GPU decoding (`H.264`, `HEVC`, `AV1` / `dav1d`) with live-edge latency catchup and shared device PTS audio-video sync |
+| Rotation & reconnect resilience | Handles live portrait/landscape rotation without stream crashes and automatically recovers dropped ADB/decoder sessions with exponential backoff |
+| Embedded Apple AirPlay 2 | Hosts an in-process AirPlay receiver inside OBS with Annex B SPS/PPS caching, contiguous frame memory safety, and `1080p` / `1440p` / `4K` / vertical presets |
+| iPhone USB Reverse Tethering | Switches a USB-connected iPhone to CDC-NCM USB Ethernet and shares PC internet via ICS for zero-Wi-Fi-jitter AirPlay over cable |
+| Scalable disconnected placeholder | Displays a clean, aspect-aware status frame while waiting for a phone connection or reconnect |
+| MLBB Co-Pilot CV bridge | Publishes throttled raw BGRA frames on a non-blocking worker thread to `127.0.0.1:8787` so MLBB Co-Pilot analyzes the exact OBS feed without a second capture session |
 
-It also copies the FFmpeg runtime DLLs from the full shared FFmpeg build under
-`vendor\ffmpeg-8.0.1-full_build-shared\bin`. The smaller DLLs bundled with
-scrcpy omit the D3D11VA decoder configuration required for hardware decoding.
+## iPhone USB Reverse Tethering
 
-- `avcodec-62.dll`
-- `avutil-60.dll`
-- `swresample-6.dll`
+To stream AirPlay over a direct USB cable without Wi-Fi congestion, check **Enable iPhone USB Reverse Tethering** inside **Apple AirPlay Source** properties.
 
-## Install target
+The plugin enforces a strict **session-only driver lifecycle** so your iPhone always behaves like a normal Apple device whenever OBS tethering is not in use:
 
-The global install script copies the plugin DLL to:
+- **When OBS is closed or USB Reverse Tethering is unchecked**:
+  - `libusb0.sys` remains completely dormant (`SERVICE_DEMAND_START`) and is **not** attached to any Apple USB device.
+  - Your iPhone runs **100% unmodified stock Apple drivers** (`usbccgp` + `AppleLowerFilter`, `OriginalConfigurationValue = 2`), keeping **Windows Photos**, **File Explorer**, **iTunes**, **Apple Devices**, and backups/sync working exactly as Apple intended.
+- **Only while USB Reverse Tethering is actively enabled in OBS**:
+  - `obs-airplay-tether-helper.exe` temporarily attaches `libusb0` to the composite parent node, sends vendor `SET_MODE` to activate Apple CDC-NCM USB Ethernet, suppresses photo popups during your stream, and enables Windows ICS (`192.168.137.1`).
+- **Immediately when unchecked, source is removed, OBS closes, or OBS crashes**:
+  - Disables ICS, sends `SET_MODE 2`, strips `libusb0` from `UpperFilters`, restores stock Apple `Device Parameters` and `AppleLowerFilter`, re-enables the Photo/PTP interface, restarts the USB node so pure Apple drivers reload immediately, and exits the helper process.
 
-```text
-C:\Program Files\obs-studio\obs-plugins\64bit
-```
+## Architecture
 
-and plugin data to:
+| Path | Purpose |
+| --- | --- |
+| `src/plugin-main.cpp` | OBS module entry point registering `obs_scrcpy_source` and `obs_airplay_source` |
+| `src/scrcpy-source.cpp` & `src/scrcpy-runtime.cpp` | Android ADB device discovery, encoder probing, `scrcpy` 4.0/4.1 socket lifecycle, FFmpeg `D3D11VA` decode & MLBB Co-Pilot CV frame bridge |
+| `src/scrcpy-low-latency.cpp` & `src/scrcpy-command.cpp` | Live-edge PTS drift/backlog control and version-aware `scrcpy-server` argument builder |
+| `src/airplay-source.cpp` & `src/airplay-runtime.cpp` | OBS AirPlay source properties, dynamic `airplay2dll` receiver host, Annex B H.264 decoder (`src/airplay-h264.cpp`), and audio/video frame delivery |
+| `src/iphone-tether.cpp` & `src/iphone-tether-helper.cpp` | Elevated named-pipe helper managing session-only `libusb0` composite filtering, CDC-NCM mode switching, ICS sharing, and full stock Apple driver restoration |
+| `src/iphone-tether-client.cpp` | Non-blocking OBS client communicating with `\\.\pipe\obs-airplay-tether` |
+| `installer/` | Inno Setup installer definition (`obs-scrcpy-source.iss`), idempotent prerequisite setup (`setup-prerequisites.ps1`), and post-install quickstart |
+| `scripts/` | Toolchain discovery, OBS/FFmpeg SDK setup, CMake build wrapper, local OBS install scripts, and release packager (`build-installer.ps1`) |
+| `tests/` | Standalone C++ unit tests for `scrcpy` commands, low-latency sync, disconnected frames, AirPlay H.264 NAL framing, pixel formats, and log filtering |
 
-```text
-C:\Program Files\obs-studio\data\obs-plugins\obs-scrcpy-source
-```
+## Developer Commands
+
+| Command | Purpose |
+| --- | --- |
+| `.\scripts\validate-environment.ps1` | Check local OBS, `scrcpy`, ADB, and Visual Studio build prerequisites |
+| `.\scripts\probe-encoders.ps1` | List hardware/software encoders reported by a connected Android device |
+| `.\scripts\configure-build.ps1` | Download/prepare OBS 32.1.2 & FFmpeg 8.0.1 SDK shims and configure CMake |
+| `.\scripts\configure-build.ps1 -Build -Configuration RelWithDebInfo` | Compile `obs-scrcpy-source.dll`, `obs-airplay-tether-helper.exe`, and unit tests |
+| `ctest --test-dir build -C RelWithDebInfo --output-on-failure` | Run all 6 C++ unit test suites |
+| `.\scripts\install-global-plugin.ps1` | Install built plugin into `C:\Program Files\obs-studio` (requires elevation) |
+| `.\scripts\install-user-plugin.ps1` | Install built plugin into `%APPDATA%\obs-studio\plugins` |
+| `.\scripts\build-installer.ps1 -Build` | Stage full runtime + prerequisites and build Inno Setup `.exe` & portable `.zip` in `release\` |
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Installing Toolkit](docs/installing-toolkit.md) | End-to-end installer, portable ZIP, source build, Android ADB, and AirPlay / USB setup |
+| [Architecture](docs/ARCHITECTURE.md) | Internal pipeline overview for `scrcpy` socket decoding, AirPlay callbacks, and threading |
+| [Roadmap To 1.0.0](docs/roadmap-1.0.md) | Planned milestones from `0.3.x` through `1.0.0` |
+| [Known Limitations](docs/known-limitations.md) | Platform requirements, DRM boundaries, and Windows ICS notes |
+| [Support Guide](docs/support.md) | How to collect OBS, prerequisite, ADB, and USB tethering logs safely |
+
+## Roadmap
+
+| Milestone | Goal |
+| --- | --- |
+| `0.3.x` | Native `scrcpy 4.1` + AirPlay 2 sources, zero-config Windows installer with Bonjour & Apple WHQL drivers, and session-only iPhone USB Reverse Tethering (**Current: `v0.3.6`**) |
+| `0.4.x` | Multi-device iPhone USB selector, explicit AirPlay network adapter binding, and richer in-OBS diagnostics |
+| `0.5.x` | Zero-copy `D3D11` GPU shared texture output into OBS graphics (`gs_texture_t`) for minimal 4K60 overhead |
+| `0.8.x` | Authenticode-signed plugin/helper/installer binaries and automated loopback integration tests |
+| `1.0.0` | Production release with finalized settings schema, multi-language locales, and full Windows 10/11 QA matrix |
+
+## Contributors
+
+- **[@spectralAV](https://github.com/spectralAV)** — Creator, lead developer, architecture, OBS plugin engineering, AirPlay & iPhone USB Reverse Tethering runtime, and Windows packaging.
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+
+## Community And Support
+
+- Use [GitHub Issues](https://github.com/spectralAV/mobile-game-streamer-toolkit/issues/new/choose) for bug reports, feature requests, documentation updates, and device stream / USB tethering diagnostics.
+- Support the project with an optional tip through [StreamElements](https://streamelements.com/martianost/tip).
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+- Read [SECURITY.md](SECURITY.md) before reporting a vulnerability.
+- Redact personal device serials, UDIDs, tokens, and private captures before sharing logs publicly.
+
+## Legal
+
+Copyright 2026 SpectralAV.
+
+Mobile Game Streamer Toolkit is an independent open-source project and is not affiliated with, endorsed by, sponsored by, or approved by Apple Inc., Google LLC, Genymobile, or the OBS Project.
+
+Original project source code is licensed under the **Apache License, Version 2.0**. Third-party libraries, headers, drivers, and bundled runtime components (`libobs`, `FFmpeg`, `scrcpy`, `libusb-win32`, `AirPlayServer`, and Apple system redistributables) remain governed by their respective upstream licenses and terms. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

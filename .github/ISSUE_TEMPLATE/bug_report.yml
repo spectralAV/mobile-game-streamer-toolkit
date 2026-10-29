@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible OBS plugin, decoder, audio sync, or installer bug.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please remove personal device serial numbers, pairing tokens, and private screenshots before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version or commit
+      description: "Example: v0.3.6 or a commit SHA."
+    validations:
+      required: true
+  - type: dropdown
+    id: install-mode
+    attributes:
+      label: Install method
+      options:
+        - Windows Installer (.exe)
+        - Portable ZIP (.zip)
+        - Built from source
+        - GHCR OCI package
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Windows & OBS Studio version
+      placeholder: "Windows 11 24H2, OBS Studio 32.1.2 (64-bit)"
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Open OBS Studio and add ...
+        2. Configure ...
+        3. Connect device ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant OBS or installer logs
+      description: Paste only non-sensitive log lines.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submit checks
+      options:
+        - label: I removed personal serial numbers, tokens, and private captures.
+          required: true
+        - label: I searched existing issues.
+          required: true

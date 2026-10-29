@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support guide
+    url: https://github.com/spectralAV/mobile-game-streamer-toolkit/blob/master/docs/support.md
+    about: Read what logs and device details to include in a useful support issue.
+  - name: Security policy
+    url: https://github.com/spectralAV/mobile-game-streamer-toolkit/blob/master/SECURITY.md
+    about: Report vulnerabilities responsibly. Do not post exploit details publicly.

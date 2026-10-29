@@ -1,0 +1,53 @@
+name: Device stream or USB tethering diagnostic
+description: Report Android ADB/scrcpy, Apple AirPlay discovery, or iPhone USB Reverse Tethering issues.
+title: "[Stream/Tether]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Device capture and tethering reports are easiest to diagnose with device model, OS version, transport mode, and sanitized log output. Redact any personal serial numbers or UDIDs.
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version or commit
+      placeholder: v0.3.6
+    validations:
+      required: true
+  - type: dropdown
+    id: source-mode
+    attributes:
+      label: Source & transport mode
+      options:
+        - Android scrcpy (USB)
+        - Android scrcpy (TCP/IP Wi-Fi)
+        - Apple AirPlay (Wi-Fi / LAN)
+        - Apple AirPlay + iPhone USB Reverse Tethering (USB cable)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Mobile device & OS version
+      placeholder: "iPhone 15 Pro (iOS 18.4), Pixel 10 Pro (Android 16), iPad Pro M4, etc."
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostic output
+      description: Include relevant non-sensitive output (redact serials/UDIDs).
+      value: |
+        adb devices -l
+        scrcpy --version
+        Get-Service "Bonjour Service", "Apple Mobile Device Service", "libusb0" | Select-Object Name, Status, StartType
+      render: shell
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What is happening?
+      description: Describe discovery failure, black frame, audio drift, DHCP lease timeout, or driver state issue.
+    validations:
+      required: true

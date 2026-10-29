@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Read version and resolve tag
         id: meta
@@ -149,3 +149,5 @@ jobs:
             org.opencontainers.image.description=Native OBS Studio input plugin for low-latency Android scrcpy and Apple AirPlay screen mirroring with iPhone USB reverse tethering
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.build-plugin.outputs.version }}
+            org.opencontainers.image.licenses=Apache-2.0
+

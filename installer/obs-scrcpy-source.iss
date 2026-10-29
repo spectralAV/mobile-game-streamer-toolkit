@@ -10,11 +10,11 @@
 #endif
 
 #ifndef MyAppPublisher
-  #define MyAppPublisher "Rokas"
+  #define MyAppPublisher "spectralAV"
 #endif
 
 #ifndef MyAppURL
-  #define MyAppURL "https://github.com/Genymobile/scrcpy"
+  #define MyAppURL "https://github.com/spectralAV/mobile-game-streamer-toolkit"
 #endif
 
 #ifndef MyAppId

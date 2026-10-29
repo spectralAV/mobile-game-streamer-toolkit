@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a focused scrcpy, AirPlay, USB reverse tethering, decoder, or installer improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What streamer or capture workflow problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest clean version of the feature.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Android scrcpy source
+        - Apple AirPlay source
+        - iPhone USB Reverse Tethering
+        - Hardware decoding / Audio sync
+        - MLBB Co-Pilot CV frame bridge
+        - Windows Installer & Packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. What else could solve it?
