@@ -2,7 +2,7 @@
 ; High-performance native Android scrcpy & Apple AirPlay input sources for OBS Studio
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.7"
+  #define MyAppVersion "0.3.8"
 #endif
 
 #ifndef MyAppName
@@ -80,7 +80,7 @@ Name: "custom"; Description: "Custom Installation"; Flags: iscustom
 [Components]
 Name: "core"; Description: "OBS scrcpy Source Plugin (Core + FFmpeg D3D11VA runtime)"; Types: full compact custom; Flags: fixed
 Name: "scrcpy"; Description: "scrcpy 4.1 Runtime & ADB Tools (Installs to Program Files\scrcpy\4.1)"; Types: full compact custom
-Name: "airplay"; Description: "Apple AirPlay Receiver & iPhone USB Reverse Tethering Runtime (iOS/iPadOS/macOS)"; Types: full custom
+Name: "airplay"; Description: "Apple AirPlay Receiver & iPhone / iPad USB Reverse Tethering Runtime (iOS/iPadOS/macOS)"; Types: full custom
 Name: "airplay\bonjour"; Description: "Apple Bonjour Service v3.1 (Required for AirPlay device discovery)"; Types: full custom
 Name: "airplay\apple_drivers"; Description: "Apple Mobile Device & USB Reverse Tethering Drivers (AMDS + WHQL USB/NCM + libusb0)"; Types: full custom
 Name: "airplay\firewall"; Description: "Windows Defender Firewall Rules (Allow OBS AirPlay & mDNS over Wi-Fi and USB)"; Types: full custom
@@ -138,7 +138,7 @@ Type: files; Name: "{app}\obs-plugins\64bit\swscale-5.dll"
 Type: filesandordirs; Name: "{app}\data\obs-plugins\obs-scrcpy-source"
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$ErrorActionPreference = 'SilentlyContinue'; $a = New-ScheduledTaskAction -Execute '{app}\obs-plugins\64bit\obs-airplay-tether-helper.exe' -Argument '--run'; $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest; Register-ScheduledTask -TaskName 'OBS-AirPlay-Tether-Helper' -Action $a -Principal $p -Force | Out-Null"""; Flags: runhidden waituntilterminated; Components: airplay; StatusMsg: "Registering AirPlay USB Reverse Tethering helper..."
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$ErrorActionPreference = 'SilentlyContinue'; $a = New-ScheduledTaskAction -Execute '{app}\obs-plugins\64bit\obs-airplay-tether-helper.exe' -Argument '--run'; $p = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest; $s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries; Register-ScheduledTask -TaskName 'OBS-AirPlay-Tether-Helper' -Action $a -Principal $p -Settings $s -Force | Out-Null"""; Flags: runhidden waituntilterminated; Components: airplay; StatusMsg: "Registering AirPlay USB Reverse Tethering helper..."
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{tmp}\obs-airplay-redist\setup-prerequisites.ps1"" -Action InstallBonjour -RedistDir ""{tmp}\obs-airplay-redist"""; Flags: runhidden waituntilterminated; Components: airplay\bonjour; StatusMsg: "Installing Apple Bonjour Service for AirPlay discovery..."
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{tmp}\obs-airplay-redist\setup-prerequisites.ps1"" -Action InstallAppleDrivers -RedistDir ""{tmp}\obs-airplay-redist"" -ObsDir ""{app}"" -PluginBinDir ""{app}\obs-plugins\64bit"""; Flags: runhidden waituntilterminated; Components: airplay\apple_drivers; StatusMsg: "Installing Apple Mobile Device & USB Reverse Tethering drivers..."
 Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{tmp}\obs-airplay-redist\setup-prerequisites.ps1"" -Action ConfigureFirewall -ObsDir ""{app}"""; Flags: runhidden waituntilterminated; Components: airplay\firewall; StatusMsg: "Configuring Windows Defender Firewall rules for AirPlay & mDNS..."

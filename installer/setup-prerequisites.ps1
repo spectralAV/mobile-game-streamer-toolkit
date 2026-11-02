@@ -129,10 +129,26 @@ switch ($Action) {
             & sc.exe create libusb0 type= kernel start= demand error= normal binPath= "system32\drivers\libusb0.sys" DisplayName= "libusb-win32 - Kernel Driver, Version 1.4.0.2" | Out-Null
         }
 
-        # 4. Ensure stock Apple USB drivers (usbccgp + AppleLowerFilter + MI_00 Photos + MI_01 AppleUsbMux)
+        # 4. Register on-demand elevated helper task (strictly on-demand, zero background startup; works on laptop battery too)
+        $helperExe = Join-Path $PluginBinDir "obs-airplay-tether-helper.exe"
+        if (Test-Path -LiteralPath $helperExe) {
+            try {
+                $loggedOnUser = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
+                if (-not $loggedOnUser) { $loggedOnUser = $env:USERNAME }
+                $action = New-ScheduledTaskAction -Execute $helperExe -Argument "--run"
+                $principal = New-ScheduledTaskPrincipal -UserId $loggedOnUser -LogonType Interactive -RunLevel Highest
+                $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+                $task = New-ScheduledTask -Action $action -Principal $principal -Settings $settings
+                Register-ScheduledTask -TaskName "OBS-AirPlay-Tether-Helper" -InputObject $task -Force | Out-Null
+                Write-PrereqLog "Registered on-demand helper task OBS-AirPlay-Tether-Helper for $loggedOnUser."
+            } catch {
+                Write-PrereqLog "WARNING: Could not register OBS-AirPlay-Tether-Helper task: $($_.Exception.Message)"
+            }
+        }
+
+        # 5. Ensure stock Apple USB drivers (usbccgp + AppleLowerFilter + MI_00 Photos + MI_01 AppleUsbMux)
         #    are 100% untouched when OBS is not running (cleans up any leftover state from older builds)
         $obsRunning = Get-Process -Name "obs64", "obs32" -ErrorAction SilentlyContinue
-        $helperExe = Join-Path $PluginBinDir "obs-airplay-tether-helper.exe"
         if ((-not $obsRunning) -and (Test-Path -LiteralPath $helperExe)) {
             Write-PrereqLog "Ensuring stock Apple USB driver state via obs-airplay-tether-helper.exe --stop..."
             Start-Process -FilePath $helperExe -ArgumentList @("--stop") -Wait -WindowStyle Hidden | Out-Null
@@ -193,8 +209,9 @@ switch ($Action) {
     }
 
     "CleanupUninstall" {
-        Write-PrereqLog "Removing plugin firewall rules ($firewallGroup)..."
+        Write-PrereqLog "Removing plugin firewall rules ($firewallGroup) and helper scheduled task..."
         Remove-NetFirewallRule -Group $firewallGroup -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName "OBS-AirPlay-Tether-Helper" -Confirm:$false -ErrorAction SilentlyContinue
     }
 }
 

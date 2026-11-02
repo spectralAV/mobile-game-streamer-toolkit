@@ -13,6 +13,7 @@
 #include <netioapi.h>
 #include <netcon.h>
 #include <cfgmgr32.h>
+#include <regstr.h>
 #include <setupapi.h>
 #include <initguid.h>
 #include <devpkey.h>
@@ -75,6 +76,70 @@ bool CaseInsensitiveContains(const std::wstring &str, const std::wstring &sub)
   return it != str.end();
 }
 
+bool ExtractUsbPid(const std::wstring &id, uint16_t &pid_out)
+{
+  std::wstring lower = id;
+  for (auto &c : lower) c = towlower(c);
+  size_t pos = lower.find(L"pid_");
+  if (pos == std::wstring::npos || pos + 8 > lower.size()) {
+    return false;
+  }
+  wchar_t *endp = nullptr;
+  std::wstring hex = lower.substr(pos + 4, 4);
+  unsigned long val = wcstoul(hex.c_str(), &endp, 16);
+  if (!endp || *endp != L'\0') {
+    return false;
+  }
+  pid_out = static_cast<uint16_t>(val);
+  return true;
+}
+
+bool IsAppleMobileDevicePid(uint16_t pid)
+{
+  // AppleUsb.inf composite iOS/iPadOS devices (iPhone, iPad, iPod touch): 0x1290..0x12AE
+  // Exclude 0x12A7 (Apple TV WinUSB); Watch (0x12AF), HomePod (0x12B0), iBoot (0x128x), DFU (0x122x..0x1250) are outside range.
+  if (pid == 0x12A7) {
+    return false;
+  }
+  return (pid >= 0x1290 && pid <= 0x12AE);
+}
+
+bool IsIPadPid(uint16_t pid)
+{
+  switch (pid) {
+    case 0x129A:
+    case 0x129F:
+    case 0x12A2:
+    case 0x12A3:
+    case 0x12A4:
+    case 0x12A5:
+    case 0x12A6:
+    case 0x12A9:
+    case 0x12AA:
+    case 0x12AB:
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool IsAppleMobileCompositeId(const std::wstring &id)
+{
+  if (!CaseInsensitiveContains(id, L"VID_05AC")) return false;
+  if (CaseInsensitiveContains(id, L"MI_")) return false;
+  if (CaseInsensitiveContains(id, L"RESTORE_MODE")) return false;
+  uint16_t pid = 0;
+  return ExtractUsbPid(id, pid) && IsAppleMobileDevicePid(pid);
+}
+
+bool IsAppleMobileChildId(const std::wstring &id)
+{
+  if (!CaseInsensitiveContains(id, L"VID_05AC")) return false;
+  if (CaseInsensitiveContains(id, L"RESTORE_MODE")) return false;
+  uint16_t pid = 0;
+  return ExtractUsbPid(id, pid) && IsAppleMobileDevicePid(pid);
+}
+
 bool RunHiddenCommand(const std::wstring &cmd)
 {
   STARTUPINFOW si = {sizeof(si)};
@@ -125,7 +190,6 @@ void LogTether(const std::string &msg)
 IPhoneTetherManager::IPhoneTetherManager()
 {
   EnsureLibusbLoaded();
-  DisablePhotoInterface();
 }
 
 IPhoneTetherManager::~IPhoneTetherManager()
@@ -206,27 +270,47 @@ bool IPhoneTetherManager::FindIPhoneDevice(std::wstring &instance_id, std::wstri
 
   for (const wchar_t *p = buffer.data(); *p; p += wcslen(p) + 1) {
     std::wstring s = p;
-    // Matches Apple Mobile Device composite ID: USB\VID_05AC&PID_12A* (case-insensitive)
-    if (CaseInsensitiveContains(s, L"VID_05AC") &&
-        CaseInsensitiveContains(s, L"PID_12A") &&
-        !CaseInsensitiveContains(s, L"MI_")) {
-      instance_id = p;
-      DEVNODE dn;
-      if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)p, CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
-        wchar_t nameBuf[256] = {0};
-        ULONG nameLen = sizeof(nameBuf);
-        if (CM_Get_DevNode_Registry_PropertyW(dn, CM_DRP_FRIENDLYNAME, nullptr, nameBuf, &nameLen, 0) == CR_SUCCESS && nameBuf[0]) {
-          friendly_name = nameBuf;
-        } else if (CM_Get_DevNode_Registry_PropertyW(dn, CM_DRP_DEVICEDESC, nullptr, nameBuf, &nameLen, 0) == CR_SUCCESS && nameBuf[0]) {
-          friendly_name = nameBuf;
-        } else {
-          friendly_name = L"Apple iPhone";
-        }
-      } else {
-        friendly_name = L"Apple iPhone";
-      }
-      return true;
+    if (!IsAppleMobileCompositeId(s)) {
+      continue;
     }
+
+    // CM_Get_Device_ID_ListW returns ALL historical/unplugged USB instances in Enum\USB.
+    // Verify the composite devnode is physically present right now via CM_LOCATE_DEVNODE_NORMAL
+    // and CM_Get_DevNode_Status so an unplugged iPhone (PID_12A8) never shadows a connected iPad (PID_12AB).
+    DEVNODE dn = 0;
+    if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)p, CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+      continue;
+    }
+    ULONG devStatus = 0, devProblem = 0;
+    if (CM_Get_DevNode_Status(&devStatus, &devProblem, dn, 0) != CR_SUCCESS) {
+      continue;
+    }
+
+    instance_id = p;
+    uint16_t pid = 0;
+    ExtractUsbPid(s, pid);
+
+    // Prefer USB BusReportedDeviceDesc ("iPad" / "iPhone") over generic "Apple Mobile Device USB Composite Device"
+    DEVPROPTYPE propType = 0;
+    wchar_t busDesc[128] = {0};
+    ULONG busDescLen = sizeof(busDesc);
+    if (CM_Get_DevNode_PropertyW(dn, &DEVPKEY_Device_BusReportedDeviceDesc, &propType,
+                                 (PBYTE)busDesc, &busDescLen, 0) == CR_SUCCESS &&
+        propType == DEVPROP_TYPE_STRING && busDesc[0]) {
+      std::wstring bd = busDesc;
+      if (CaseInsensitiveContains(bd, L"iPad")) {
+        friendly_name = L"Apple iPad";
+      } else if (CaseInsensitiveContains(bd, L"iPhone")) {
+        friendly_name = L"Apple iPhone";
+      } else {
+        friendly_name = L"Apple " + bd;
+      }
+    } else if (IsIPadPid(pid)) {
+      friendly_name = L"Apple iPad";
+    } else {
+      friendly_name = L"Apple iPhone";
+    }
+    return true;
   }
 
   return false;
@@ -273,9 +357,7 @@ bool IPhoneTetherManager::FindAllPtpInterfaces(std::vector<std::wstring> &ptp_id
 
   for (const wchar_t *p = buffer.data(); *p; p += wcslen(p) + 1) {
     std::wstring s = p;
-    if (CaseInsensitiveContains(s, L"05ac") &&
-        CaseInsensitiveContains(s, L"12a") &&
-        CaseInsensitiveContains(s, L"mi_00")) {
+    if (IsAppleMobileChildId(s) && CaseInsensitiveContains(s, L"mi_00")) {
       ptp_ids.push_back(s);
     }
   }
@@ -297,16 +379,23 @@ bool IPhoneTetherManager::DisablePhotoInterface()
 {
   std::vector<std::wstring> ptp_ids;
   FindAllPtpInterfaces(ptp_ids);
+  size_t disabled_count = 0;
   for (const auto &id : ptp_ids) {
     DEVNODE dn;
     if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
-      CM_Disable_DevNode(dn, CM_DISABLE_UI_NOT_OK);
+      ULONG st = 0, prob = 0;
+      if (CM_Get_DevNode_Status(&st, &prob, dn, 0) == CR_SUCCESS && prob != CM_PROB_DISABLED) {
+        CM_Disable_DevNode(dn, CM_DISABLE_UI_NOT_OK);
+        std::wstring cmd = L"pnputil.exe /disable-device \"" + id + L"\"";
+        RunHiddenCommand(cmd);
+        ++disabled_count;
+      }
     }
-    std::wstring cmd = L"pnputil.exe /disable-device \"" + id + L"\"";
-    RunHiddenCommand(cmd);
   }
-  LogTether("DisablePhotoInterface: disabled " + std::to_string(ptp_ids.size()) + " PTP devnodes.");
-  return !ptp_ids.empty();
+  if (disabled_count > 0) {
+    LogTether("DisablePhotoInterface: disabled " + std::to_string(disabled_count) + " live PTP devnodes.");
+  }
+  return disabled_count > 0;
 }
 
 void IPhoneTetherManager::RemoveAllRegistryConfigIndices(bool /*full_revert*/)
@@ -320,7 +409,7 @@ void IPhoneTetherManager::RemoveAllRegistryConfigIndices(bool /*full_revert*/)
   DWORD index = 0;
   while (RegEnumKeyW(hUsb, index++, subName, 256) == ERROR_SUCCESS) {
     std::wstring s = subName;
-    if (CaseInsensitiveContains(s, L"VID_05AC") && CaseInsensitiveContains(s, L"PID_12A") && !CaseInsensitiveContains(s, L"MI_")) {
+    if (IsAppleMobileCompositeId(s)) {
       std::wstring devKeyPath = L"SYSTEM\\CurrentControlSet\\Enum\\USB\\" + s;
       HKEY hDev = nullptr;
       if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, devKeyPath.c_str(), 0, KEY_READ, &hDev) == ERROR_SUCCESS) {
@@ -356,16 +445,29 @@ bool IPhoneTetherManager::EnablePhotoInterface()
 {
   std::vector<std::wstring> ptp_ids;
   FindAllPtpInterfaces(ptp_ids);
+  size_t enabled_count = 0;
   for (const auto &id : ptp_ids) {
     DEVNODE dn;
-    if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS ||
-        CM_Locate_DevNodeW(&dn, (DEVINSTID_W)id.c_str(), CM_LOCATE_DEVNODE_PHANTOM) == CR_SUCCESS) {
-      CM_Enable_DevNode(dn, 0);
+    if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+      ULONG st = 0, prob = 0;
+      if (CM_Get_DevNode_Status(&st, &prob, dn, 0) == CR_SUCCESS && ((st & DN_HAS_PROBLEM) || prob != 0)) {
+        CM_Enable_DevNode(dn, 0);
+        std::wstring cmd = L"pnputil.exe /enable-device \"" + id + L"\"";
+        RunHiddenCommand(cmd);
+        ++enabled_count;
+      }
+    } else if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)id.c_str(), CM_LOCATE_DEVNODE_PHANTOM) == CR_SUCCESS) {
+      ULONG cfgFlags = 0;
+      ULONG cfgLen = sizeof(cfgFlags);
+      if (CM_Get_DevNode_Registry_PropertyW(dn, CM_DRP_CONFIGFLAGS, nullptr, &cfgFlags, &cfgLen, 0) == CR_SUCCESS &&
+          (cfgFlags & CONFIGFLAG_DISABLED)) {
+        cfgFlags &= ~CONFIGFLAG_DISABLED;
+        CM_Set_DevNode_Registry_PropertyW(dn, CM_DRP_CONFIGFLAGS, &cfgFlags, sizeof(cfgFlags), 0);
+        ++enabled_count;
+      }
     }
-    std::wstring cmd = L"pnputil.exe /enable-device \"" + id + L"\"";
-    RunHiddenCommand(cmd);
   }
-  LogTether("EnablePhotoInterface: re-enabled " + std::to_string(ptp_ids.size()) + " PTP devnodes.");
+  LogTether("EnablePhotoInterface: re-enabled " + std::to_string(enabled_count) + " PTP devnodes.");
   return true;
 }
 
@@ -382,7 +484,7 @@ bool IPhoneTetherManager::ResetUsbDevice()
   struct usb_device *apple_dev = nullptr;
   for (struct usb_bus *bus = busses; bus && !apple_dev; bus = bus->next) {
     for (struct usb_device *dev = bus->devices; dev; dev = dev->next) {
-      if (dev->descriptor.idVendor == 0x05AC) {
+      if (dev->descriptor.idVendor == 0x05AC && IsAppleMobileDevicePid(dev->descriptor.idProduct)) {
         apple_dev = dev;
         break;
       }
@@ -607,7 +709,11 @@ bool IPhoneTetherManager::DetachAllLibusbFilters()
   DWORD index = 0;
   while (RegEnumKeyW(hUsb, index++, subName, 256) == ERROR_SUCCESS) {
     std::wstring s = subName;
-    if (!CaseInsensitiveContains(s, L"VID_05AC") || !CaseInsensitiveContains(s, L"PID_12A")) {
+    uint16_t pid = 0;
+    if (!CaseInsensitiveContains(s, L"VID_05AC") ||
+        CaseInsensitiveContains(s, L"RESTORE_MODE") ||
+        !ExtractUsbPid(s, pid) ||
+        !IsAppleMobileDevicePid(pid)) {
       continue;
     }
 
@@ -718,6 +824,46 @@ bool IPhoneTetherManager::DetachAllLibusbFilters()
   return any_modified;
 }
 
+void IPhoneTetherManager::EnablePresentAppleNcmChildren(uint16_t target_pid)
+{
+  ULONG len = 0;
+  if (CM_Get_Device_ID_List_SizeW(&len, L"USB", CM_GETIDLIST_FILTER_ENUMERATOR) != CR_SUCCESS || len <= 1) {
+    return;
+  }
+
+  std::vector<wchar_t> buffer(len);
+  if (CM_Get_Device_ID_ListW(L"USB", buffer.data(), len, CM_GETIDLIST_FILTER_ENUMERATOR) != CR_SUCCESS) {
+    return;
+  }
+
+  for (const wchar_t *p = buffer.data(); *p; p += wcslen(p) + 1) {
+    std::wstring s = p;
+    if (!IsAppleMobileChildId(s)) {
+      continue;
+    }
+    uint16_t pid = 0;
+    if (target_pid != 0 && ExtractUsbPid(s, pid) && pid != target_pid) {
+      continue;
+    }
+    if (!CaseInsensitiveContains(s, L"CDC_0D") &&
+        !CaseInsensitiveContains(s, L"MI_02") &&
+        !CaseInsensitiveContains(s, L"MI_04")) {
+      continue;
+    }
+
+    DEVNODE dn = 0;
+    if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)p, CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+      ULONG st = 0, prob = 0;
+      if (CM_Get_DevNode_Status(&st, &prob, dn, 0) == CR_SUCCESS && ((st & DN_HAS_PROBLEM) || prob != 0)) {
+        LogTether("Enabling NCM child devnode: " + WideToUtf8(s) + " (prob=" + std::to_string(prob) + ")");
+        CM_Enable_DevNode(dn, 0);
+        std::wstring enCmd = L"pnputil.exe /enable-device \"" + s + L"\"";
+        RunHiddenCommand(enCmd);
+      }
+    }
+  }
+}
+
 bool IPhoneTetherManager::PerformModeSwitch(int target_mode, const std::wstring &phone_id, std::string &error_msg)
 {
   if (!EnsureLibusbLoaded()) {
@@ -725,20 +871,32 @@ bool IPhoneTetherManager::PerformModeSwitch(int target_mode, const std::wstring 
     return false;
   }
 
+  uint16_t target_pid = 0;
+  ExtractUsbPid(phone_id, target_pid);
+
   auto findAppleUsbDev = [&]() -> struct usb_device * {
     fn_usb_find_busses();
     fn_usb_find_devices();
     struct usb_bus *busses = fn_usb_get_busses();
+    struct usb_device *fallback_dev = nullptr;
     for (struct usb_bus *bus = busses; bus; bus = bus->next) {
       for (struct usb_device *dev = bus->devices; dev; dev = dev->next) {
-        if (dev->descriptor.idVendor == 0x05AC) {
-          return dev;
+        if (dev->descriptor.idVendor == 0x05AC && IsAppleMobileDevicePid(dev->descriptor.idProduct)) {
+          if (target_pid != 0) {
+            if (dev->descriptor.idProduct == target_pid) {
+              return dev;
+            }
+          } else if (!fallback_dev) {
+            fallback_dev = dev;
+          }
         }
       }
     }
-    return nullptr;
+    return fallback_dev;
   };
 
+  // Attach session-only libusb0 UpperFilter to composite parent BEFORE setting config 4,
+  // so the initial composite restart occurs cleanly in safe configuration 2 without Code 10.
   struct usb_device *apple_dev = findAppleUsbDev();
   if (!apple_dev && target_mode == 3 && !phone_id.empty()) {
     if (EnsureLibusbFilterAttached(phone_id)) {
@@ -747,13 +905,36 @@ bool IPhoneTetherManager::PerformModeSwitch(int target_mode, const std::wstring 
   }
 
   if (!apple_dev) {
-    error_msg = "iPhone not found through libusb filter";
+    error_msg = "Apple USB device not found through libusb filter";
     return false;
+  }
+
+  // Detect CDC-NCM config index dynamically if device already exposes >=5 configurations, else default to index 4
+  uint32_t desired_ncm_index = kNcmIndex;
+  if (apple_dev->config && apple_dev->descriptor.bNumConfigurations > 0) {
+    for (uint8_t c = 0; c < apple_dev->descriptor.bNumConfigurations; ++c) {
+      const struct usb_config_descriptor &cfg = apple_dev->config[c];
+      if (!cfg.interface) continue;
+      for (uint8_t i = 0; i < cfg.bNumInterfaces; ++i) {
+        const struct usb_interface &iface = cfg.interface[i];
+        if (!iface.altsetting) continue;
+        for (int a = 0; a < iface.num_altsetting; ++a) {
+          if (iface.altsetting[a].bInterfaceClass == 0x02 &&
+              iface.altsetting[a].bInterfaceSubClass == 0x0D) {
+            desired_ncm_index = c;
+          }
+        }
+      }
+    }
+  }
+
+  if (target_mode == 3 && !phone_id.empty()) {
+    SetRegistryConfigIndex(phone_id, desired_ncm_index, kSafeIndex);
   }
 
   usb_dev_handle *handle = fn_usb_open(apple_dev);
   if (!handle) {
-    error_msg = "Failed to open iPhone USB handle";
+    error_msg = "Failed to open Apple USB handle";
     return false;
   }
 
@@ -765,11 +946,24 @@ bool IPhoneTetherManager::PerformModeSwitch(int target_mode, const std::wstring 
     error_msg = "GET_MODE control transfer failed (device may be locked with passcode)";
     return false;
   }
-  LogTether("GET_MODE returned ret=" + std::to_string(ret) + " mode=" + std::to_string((int)mode_buf[0]));
+  LogTether("GET_MODE (PID=0x" +
+            ([&]() { std::ostringstream hs; hs << std::hex << apple_dev->descriptor.idProduct; return hs.str(); })() +
+            ", bNumConfigurations=" + std::to_string((int)apple_dev->descriptor.bNumConfigurations) +
+            ") returned ret=" + std::to_string(ret) +
+            " bytes=[" + std::to_string((unsigned char)mode_buf[0]) + "," +
+            std::to_string((unsigned char)mode_buf[1]) + "," +
+            std::to_string((unsigned char)mode_buf[2]) + "," +
+            std::to_string((unsigned char)mode_buf[3]) + "]");
 
-  // If already in target mode, no need to SET_MODE again
-  if (mode_buf[0] == 5 && target_mode == 3) {
+  // If hardware is already in mode 5 (5 configurations exposed), it will not re-enumerate on its own;
+  // restart the composite devnode so usbccgp selects OriginalConfigurationValue=desired_ncm_index immediately!
+  if ((mode_buf[0] == 5 || apple_dev->descriptor.bNumConfigurations >= 5) && target_mode == 3) {
     fn_usb_close(handle);
+    if (!phone_id.empty()) {
+      LogTether("Device already exposes CDC-NCM configuration (index " + std::to_string(desired_ncm_index) +
+                "); restarting composite devnode to activate USB Ethernet...");
+      RestartDeviceNode(phone_id);
+    }
     return true;
   }
 
@@ -781,7 +975,7 @@ bool IPhoneTetherManager::PerformModeSwitch(int target_mode, const std::wstring 
   LogTether("SET_MODE " + std::to_string(target_mode) + " returned ret=" + std::to_string(ret) + " byte=" + std::to_string((int)set_buf[0]));
 
   if (target_mode == 3 && (ret != 1 || set_buf[0] != 0)) {
-    error_msg = "SET_MODE request rejected by iPhone (passcode lock or trust required)";
+    error_msg = "SET_MODE request rejected by device (passcode lock or Trust required)";
     return false;
   }
 
@@ -807,47 +1001,61 @@ static bool QueryAdaptersAddressesSafe(std::vector<BYTE> &buffer)
   return ret == NO_ERROR;
 }
 
-static bool IsAppleAdapter(const char *adapterGuidName, const std::wstring &desc)
+static bool IsPresentAppleAdapter(const char *adapterGuidName, const std::wstring &desc, uint16_t expected_pid, bool &matches_pid_out)
 {
+  matches_pid_out = false;
+
+  if (adapterGuidName && *adapterGuidName) {
+    std::wstring guidStr;
+    const char *p = adapterGuidName;
+    while (*p) {
+      guidStr.push_back((wchar_t)*p++);
+    }
+
+    std::wstring regPath = L"SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}\\" +
+                           guidStr + L"\\Connection";
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, regPath.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+      wchar_t pnpId[512] = {0};
+      DWORD cbData = sizeof(pnpId);
+      DWORD dwType = 0;
+      if (RegQueryValueExW(hKey, L"PnPInstanceId", nullptr, &dwType, (LPBYTE)pnpId, &cbData) == ERROR_SUCCESS && pnpId[0]) {
+        RegCloseKey(hKey);
+        std::wstring pnpStr = pnpId;
+        if (!IsAppleMobileChildId(pnpStr)) {
+          return false;
+        }
+
+        // Verify the underlying USB NCM interface is physically present right now (filters out unplugged ghost adapters!)
+        DEVNODE dn = 0;
+        if (CM_Locate_DevNodeW(&dn, pnpId, CM_LOCATE_DEVNODE_NORMAL) != CR_SUCCESS) {
+          return false;
+        }
+        ULONG st = 0, prob = 0;
+        if (CM_Get_DevNode_Status(&st, &prob, dn, 0) != CR_SUCCESS) {
+          return false;
+        }
+
+        uint16_t adapter_pid = 0;
+        if (ExtractUsbPid(pnpStr, adapter_pid) && expected_pid != 0 && adapter_pid == expected_pid) {
+          matches_pid_out = true;
+        }
+        return true;
+      }
+      RegCloseKey(hKey);
+    }
+  }
+
   std::wstring descLower = desc;
   for (auto &c : descLower) c = towlower(c);
   if (descLower.find(L"apple") != std::wstring::npos) {
     return true;
   }
 
-  if (!adapterGuidName || !*adapterGuidName) {
-    return false;
-  }
-
-  std::wstring guidStr;
-  const char *p = adapterGuidName;
-  while (*p) {
-    guidStr.push_back((wchar_t)*p++);
-  }
-
-  std::wstring regPath = L"SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}\\" +
-                         guidStr + L"\\Connection";
-  HKEY hKey = nullptr;
-  if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, regPath.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-    wchar_t pnpId[512] = {0};
-    DWORD cbData = sizeof(pnpId);
-    DWORD dwType = 0;
-    if (RegQueryValueExW(hKey, L"PnPInstanceId", nullptr, &dwType, (LPBYTE)pnpId, &cbData) == ERROR_SUCCESS) {
-      RegCloseKey(hKey);
-      std::wstring pnpLower = pnpId;
-      for (auto &c : pnpLower) c = towlower(c);
-      if (pnpLower.find(L"vid_05ac") != std::wstring::npos) {
-        return true;
-      }
-    } else {
-      RegCloseKey(hKey);
-    }
-  }
-
   return false;
 }
 
-bool IPhoneTetherManager::FindNcmAdapter(std::wstring &adapter_name, std::wstring &adapter_desc, uint32_t &if_index, bool &is_up)
+bool IPhoneTetherManager::FindNcmAdapter(std::wstring &adapter_name, std::wstring &adapter_desc, uint32_t &if_index, bool &is_up, uint16_t expected_pid)
 {
   is_up = false;
   std::vector<BYTE> buffer;
@@ -867,7 +1075,6 @@ bool IPhoneTetherManager::FindNcmAdapter(std::wstring &adapter_name, std::wstrin
     if (cur->IfType != IF_TYPE_ETHERNET_CSMACD) {
       continue;
     }
-    // Skip adapters that are completely absent from PnP
     if (cur->OperStatus == IfOperStatusNotPresent) {
       continue;
     }
@@ -875,13 +1082,13 @@ bool IPhoneTetherManager::FindNcmAdapter(std::wstring &adapter_name, std::wstrin
     std::wstring desc = cur->Description ? cur->Description : L"";
     std::wstring name = cur->FriendlyName ? cur->FriendlyName : L"";
 
-    // MUST belong to Apple (VID_05AC or Apple in description)
-    if (!IsAppleAdapter(cur->AdapterName, desc)) {
+    bool matches_pid = false;
+    if (!IsPresentAppleAdapter(cur->AdapterName, desc, expected_pid, matches_pid)) {
       continue;
     }
 
     const bool up = (cur->OperStatus == IfOperStatusUp);
-    int candidate_score = (up ? 10000 : 0);
+    int candidate_score = (matches_pid ? 50000 : 0) + (up ? 10000 : 0);
     int num = 1;
     size_t last_delim = name.find_last_of(L" #");
     if (last_delim != std::wstring::npos && last_delim + 1 < name.size()) {
@@ -905,7 +1112,7 @@ bool IPhoneTetherManager::FindNcmAdapter(std::wstring &adapter_name, std::wstrin
     adapter_desc = best_desc;
     if_index = best_if_index;
     is_up = best_is_up;
-    LogTether("FindNcmAdapter found Apple adapter: [" + WideToUtf8(adapter_name) +
+    LogTether("FindNcmAdapter found present Apple adapter: [" + WideToUtf8(adapter_name) +
               "] (" + WideToUtf8(adapter_desc) + ") IfIndex=" + std::to_string(if_index) +
               " is_up=" + (best_is_up ? "true" : "false"));
     return true;
@@ -1328,13 +1535,13 @@ void IPhoneTetherManager::MonitorLoop()
   while (monitor_running_) {
     ++loop_count;
 
-    // 1. Detect if an iPhone is physically connected via USB
+    // 1. Detect if an iPhone or iPad is physically connected via USB
     std::wstring phone_id, phone_name;
     if (!FindIPhoneDevice(phone_id, phone_name)) {
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
         monitor_state_ = TetherMonitorState::Disconnected;
-        last_error_ = "No iPhone detected on USB. Connect cable & unlock screen.";
+        last_error_ = "No iPhone or iPad detected on USB. Connect cable & unlock screen.";
         running_ = false;
         current_phone_id_.clear();
         current_phone_name_.clear();
@@ -1345,6 +1552,9 @@ void IPhoneTetherManager::MonitorLoop()
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       continue;
     }
+
+    uint16_t active_pid = 0;
+    ExtractUsbPid(phone_id, active_pid);
 
     {
       std::lock_guard<std::mutex> lock(state_mutex_);
@@ -1357,17 +1567,17 @@ void IPhoneTetherManager::MonitorLoop()
       {
         std::lock_guard<std::mutex> lock(state_mutex_);
         monitor_state_ = TetherMonitorState::SwitchingMode;
-        last_error_ = "Recovering iPhone USB device state...";
+        last_error_ = "Recovering " + WideToUtf8(phone_name) + " USB device state...";
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       continue;
     }
 
-    // 2. Check if Apple NCM adapter is present AND active
+    // 2. Check if Apple NCM adapter for this connected device is present AND active
     std::wstring ncm_name, ncm_desc;
     uint32_t ncm_if_index = 0;
     bool is_ncm_up = false;
-    bool has_ncm = FindNcmAdapter(ncm_name, ncm_desc, ncm_if_index, is_ncm_up);
+    bool has_ncm = FindNcmAdapter(ncm_name, ncm_desc, ncm_if_index, is_ncm_up, active_pid);
 
     if (!has_ncm || !is_ncm_up) {
       {
@@ -1376,10 +1586,9 @@ void IPhoneTetherManager::MonitorLoop()
         last_error_.clear();
       }
 
-      LogTether("Apple NCM adapter not active (has_ncm=" + std::to_string(has_ncm) +
+      LogTether("Apple NCM adapter not active for " + WideToUtf8(phone_name) + " [" + WideToUtf8(phone_id) +
+                "] (has_ncm=" + std::to_string(has_ncm) +
                 ", is_up=" + std::to_string(is_ncm_up) + "). Performing mode switch sequence...");
-
-      SetRegistryConfigIndex(phone_id, kNcmIndex, kSafeIndex);
 
       std::string mode_err;
       if (!PerformModeSwitch(3, phone_id, mode_err)) {
@@ -1388,7 +1597,7 @@ void IPhoneTetherManager::MonitorLoop()
           std::lock_guard<std::mutex> lock(state_mutex_);
           if (mode_err.find("passcode") != std::string::npos || mode_err.find("rejected") != std::string::npos) {
             monitor_state_ = TetherMonitorState::WaitingTrust;
-            last_error_ = "Action Required: Please unlock iPhone & tap 'Trust This Computer' on screen";
+            last_error_ = "Action Required: Unlock " + WideToUtf8(phone_name) + " & tap 'Trust This Computer'";
           } else {
             monitor_state_ = TetherMonitorState::SwitchingMode;
             last_error_ = "USB Mode switch in progress (" + mode_err + ")...";
@@ -1398,26 +1607,23 @@ void IPhoneTetherManager::MonitorLoop()
         continue;
       }
 
-      // Allow iPhone hardware to re-enumerate on USB and Windows PnP to discover the NCM adapter (up to 10 seconds)
+      // Allow iPhone/iPad hardware to re-enumerate on USB and Windows PnP to discover the NCM adapter (up to 10 seconds)
       LogTether("SET_MODE 3 sent. Waiting up to 10s for Apple NCM adapter to enumerate and come Up...");
       for (int i = 0; i < 20 && monitor_running_; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        if (FindNcmAdapter(ncm_name, ncm_desc, ncm_if_index, is_ncm_up) && is_ncm_up) {
+        if (FindNcmAdapter(ncm_name, ncm_desc, ncm_if_index, is_ncm_up, active_pid) && is_ncm_up) {
           has_ncm = true;
           break;
         }
       }
 
-      // If NCM adapter still not active, enable any disabled child NCM functions
+      // If NCM adapter still not active, dynamically enable any disabled child NCM functions for this PID
       if ((!has_ncm || !is_ncm_up) && monitor_running_) {
-        LogTether("Apple NCM adapter not yet Up. Enabling any disabled NCM child devnodes...");
-        std::wstring enCmd = L"pnputil.exe /enable-device \"USB\\VID_05AC&PID_12A8&MI_02\\*\"";
-        RunHiddenCommand(enCmd);
-        enCmd = L"pnputil.exe /enable-device \"USB\\VID_05AC&PID_12A8&REV_1404&CDC_0D&MI_02\\*\"";
-        RunHiddenCommand(enCmd);
+        LogTether("Apple NCM adapter not yet Up. Checking any disabled NCM child devnodes...");
+        EnablePresentAppleNcmChildren(active_pid);
         for (int i = 0; i < 6 && monitor_running_; ++i) {
           std::this_thread::sleep_for(std::chrono::milliseconds(500));
-          if (FindNcmAdapter(ncm_name, ncm_desc, ncm_if_index, is_ncm_up) && is_ncm_up) {
+          if (FindNcmAdapter(ncm_name, ncm_desc, ncm_if_index, is_ncm_up, active_pid) && is_ncm_up) {
             has_ncm = true;
             break;
           }
@@ -1430,7 +1636,7 @@ void IPhoneTetherManager::MonitorLoop()
         {
           std::lock_guard<std::mutex> lock(state_mutex_);
           monitor_state_ = TetherMonitorState::Error;
-          last_error_ = "USB Ethernet did not respond. Please reconnect USB cable.";
+          last_error_ = "USB Ethernet did not respond on " + WideToUtf8(phone_name) + ". Please unlock screen & reconnect USB cable.";
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(2000));
         continue;
@@ -1569,7 +1775,7 @@ bool IPhoneTetherManager::StartShare(std::string &error_msg)
 
 bool IPhoneTetherManager::StopShare(bool full_revert, std::string &error_msg)
 {
-  LogTether("StopShare called. Reverting iPhone USB stack to stock Apple defaults...");
+  LogTether("StopShare called. Reverting Apple USB stack to stock Apple defaults...");
 
   monitor_running_ = false;
   if (monitor_thread_.joinable()) {
@@ -1586,6 +1792,9 @@ bool IPhoneTetherManager::StopShare(bool full_revert, std::string &error_msg)
     FindIPhoneDevice(active_phone_id, temp_name);
   }
 
+  uint16_t active_pid = 0;
+  ExtractUsbPid(active_phone_id, active_pid);
+
   // 1. Disable all ICS network sharing
   DisableAllIcs(error_msg);
 
@@ -1593,7 +1802,7 @@ bool IPhoneTetherManager::StopShare(bool full_revert, std::string &error_msg)
   std::wstring ncm_name, ncm_desc;
   uint32_t ncm_if = 0;
   bool ncm_up = false;
-  const bool had_ncm = FindNcmAdapter(ncm_name, ncm_desc, ncm_if, ncm_up);
+  const bool had_ncm = FindNcmAdapter(ncm_name, ncm_desc, ncm_if, ncm_up, active_pid);
 
   std::string mode_err;
   PerformModeSwitch(2, active_phone_id, mode_err);
@@ -1608,7 +1817,7 @@ bool IPhoneTetherManager::StopShare(bool full_revert, std::string &error_msg)
   // 5. Re-enable Apple Photo / PTP interface (MI_00) so Windows Photos & File Explorer work normally
   EnablePhotoInterface();
 
-  // 6. Reload pure stock Apple USB stack on connected iPhone and verify health
+  // 6. Reload pure stock Apple USB stack on connected iPhone/iPad and verify health
   if (!active_phone_id.empty()) {
     if (filters_changed || had_ncm) {
       RestartDeviceNode(active_phone_id);
@@ -1650,28 +1859,30 @@ IPhoneTetherStatus IPhoneTetherManager::GetStatus()
   st.rx_speed_kbps = cur_rx_speed_kbps_;
   st.tx_speed_kbps = cur_tx_speed_kbps_;
 
+  const std::string dev_label = st.phone_name.empty() ? "iPhone/iPad" : st.phone_name;
+
   switch (monitor_state_) {
     case TetherMonitorState::Idle:
       st.state_text = "Disconnected (Cable idle)";
       break;
     case TetherMonitorState::Disconnected:
-      st.state_text = "Disconnected: Connect iPhone via USB cable";
+      st.state_text = "Disconnected: Connect iPhone or iPad via USB cable";
       break;
     case TetherMonitorState::WaitingTrust:
-      st.state_text = "Action Required: Please unlock iPhone & tap 'Trust This Computer' on screen";
+      st.state_text = "Action Required: Please unlock " + dev_label + " & tap 'Trust This Computer' on screen";
       break;
     case TetherMonitorState::SwitchingMode:
-      st.state_text = "Switching iPhone to USB Ethernet (CDC-NCM) mode...";
+      st.state_text = "Switching " + dev_label + " to USB Ethernet (CDC-NCM) mode...";
       break;
     case TetherMonitorState::ConfiguringIcs:
-      st.state_text = "Configuring Internet Connection Sharing (" + WideToUtf8(current_uplink_name_) + " -> iPhone)...";
+      st.state_text = "Configuring Internet Connection Sharing (" + WideToUtf8(current_uplink_name_) + " -> " + dev_label + ")...";
       break;
     case TetherMonitorState::WaitingDhcp:
-      st.state_text = "Waiting for iPhone IP lease (DHCP)...";
+      st.state_text = "Waiting for " + dev_label + " IP lease (DHCP)...";
       break;
     case TetherMonitorState::Active: {
       std::ostringstream ss;
-      ss << "Active: " << (st.phone_name.empty() ? "iPhone" : st.phone_name)
+      ss << "Active: " << dev_label
          << " (" << (st.leased_ip.empty() ? "DHCP Negotiating..." : st.leased_ip)
          << " via " << st.uplink_name << ")";
       if (cur_rx_speed_kbps_ > 0 || cur_tx_speed_kbps_ > 0) {

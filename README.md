@@ -5,7 +5,7 @@
 <h1 align="center">Mobile Game Streamer Toolkit</h1>
 
 <p align="center">
-  <strong>Native OBS Studio input plugin for low-latency Android <code>scrcpy</code> capture, Apple AirPlay 2 screen mirroring, and session-only iPhone USB Reverse Tethering.</strong>
+  <strong>Native OBS Studio input plugin for low-latency Android <code>scrcpy</code> capture, Apple AirPlay 2 screen mirroring, and session-only iPhone &amp; iPad USB Reverse Tethering.</strong>
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 
 Mobile Game Streamer Toolkit (`obs-scrcpy-source`) is a native Windows x64 OBS Studio plugin built for mobile esports creators and broadcast setups. Instead of capturing external desktop windows or dealing with Wi-Fi jitter, it decodes Android `scrcpy` sockets and Apple AirPlay 2 streams directly inside OBS Studio using hardware-accelerated FFmpeg (`D3D11VA`), outputs synchronized low-latency video and audio frames via `obs_source_output_video()` / `obs_source_output_audio()`, and optionally bridges live frames directly to [MLBB Co-Pilot](https://github.com/spectralAV/mlbb-co-pilot).
 
-The project is actively progressing toward `1.0.0`. Current release: [`v0.3.7`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/tag/v0.3.7).
+The project is actively progressing toward `1.0.0`. Current release: [`v0.3.8`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/tag/v0.3.8).
 
 Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap to 1.0.0](docs/roadmap-1.0.md) · [Known Limitations](docs/known-limitations.md)
 
@@ -44,7 +44,7 @@ Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architectur
 | Primary platform | Windows 10 / 11 (x64) with OBS Studio 30+ / 32+ |
 | Android capture | Native headless `scrcpy` 4.0 / 4.1 socket transport (`H.264`, `H.265`, `AV1`, `VP8`, `VP9` + `Opus`, `AAC`, `FLAC`, raw PCM) |
 | Apple capture | Embedded AirPlay 2 receiver (`1080p`, `1440p`, `4K`, `Portrait 2K`, `Portrait 4K`) + gameplay audio |
-| iPhone USB cable mode | Session-only CDC-NCM USB Reverse Tethering (`192.168.137.1` ICS) with full automatic revert to stock Apple drivers |
+| iPhone / iPad USB cable mode | Session-only CDC-NCM USB Reverse Tethering (`192.168.137.1` ICS) with full automatic revert to stock Apple drivers |
 | Zero-config installer | Inno Setup `.exe` bundling `scrcpy 4.1`, FFmpeg 8.0.1 `D3D11VA`, Apple Bonjour, Apple Mobile Device Support, WHQL USB/NCM drivers & Firewall rules |
 | Package registry | GHCR OCI plugin binary package (`ghcr.io/spectralav/mobile-game-streamer-toolkit`) |
 | CV integration | Optional background latest-frame BGRA bridge to `http://127.0.0.1:8787/api/capture/obs/frame.raw` for [MLBB Co-Pilot](https://github.com/spectralAV/mlbb-co-pilot) |
@@ -53,7 +53,7 @@ Planning and guides: [Install Guide](docs/installing-toolkit.md) · [Architectur
 
 ### End-User Zero-Config Setup (Recommended)
 
-1. Download **`obs-scrcpy-source-0.3.7-windows-x64-Installer.exe`** from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+1. Download **`obs-scrcpy-source-0.3.8-windows-x64-Installer.exe`** from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 2. Close OBS Studio and run the installer (all required runtimes, Apple Bonjour, Apple USB/NCM drivers, and Windows Firewall rules are configured out of the box).
 3. Prepare your phone/tablet using the [Device Setup Guide](#device-setup-guide) below, then open OBS Studio, click **`+`** under **Sources**, and add:
    - **scrcpy Device Source** for Android USB / TCP-IP capture, or
@@ -117,22 +117,22 @@ Unlike capture cards or Android `scrcpy`, Apple devices **never** start streamin
    - **Mac (macOS)**: Click the **Control Center** icon (two pill toggles) in the top-right menu bar.
 4. Tap the **Screen Mirroring** button *(icon with two overlapping rectangles)* and tap **`OBS AirPlay`**. Gameplay video and audio will appear in OBS immediately.
 
-#### Option B — Zero-Lag USB Cable (iPhone USB Reverse Tethering)
+#### Option B — Zero-Lag USB Cable (iPhone / iPad USB Reverse Tethering)
 
-1. Plug your iPhone into your PC with a Lightning or USB-C data cable, **unlock the iPhone**, and tap **Trust** (plus enter your passcode) if **"Trust This Computer?"** appears.
+1. Plug your iPhone or iPad into your PC with a Lightning or USB-C data cable, **unlock the screen**, and tap **Trust** (plus enter your passcode) if **"Trust This Computer?"** appears.
 2. In OBS Studio, open **Apple AirPlay Source** properties and check **both**:
    - **Enable AirPlay receiver**
-   - **Enable iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)**
-3. Wait 3–5 seconds (click **Refresh USB Status** to confirm status is **`Active`** — your iPhone now uses a private direct USB Ethernet tunnel to your PC).
-4. **Start Screen Mirroring on your iPhone**: Even over USB cable, **swipe down from the top-right corner** of your iPhone to open **Control Center (quick settings bar)** -> tap **Screen Mirroring** (two overlapping rectangles) -> select **`OBS AirPlay`**.
-5. **To stop streaming**: Open **Control Center -> Screen Mirroring -> Stop Mirroring**. Uncheck **Enable iPhone USB Reverse Tethering** (or close OBS) to immediately revert your iPhone to stock Apple USB mode.
+   - **Enable iPhone / iPad USB Reverse Tethering (Zero-Lag / Direct Cable)**
+3. Wait 3–5 seconds (click **Refresh USB Status** to confirm status is **`Active`** — your iPhone or iPad now uses a private direct USB Ethernet tunnel to your PC).
+4. **Start Screen Mirroring on your iPhone / iPad**: Even over USB cable, **swipe down from the top-right corner** of your iPhone or iPad *(or swipe up from the bottom edge on Home-button models)* to open **Control Center (quick settings bar)** -> tap **Screen Mirroring** (two overlapping rectangles) -> select **`OBS AirPlay`**.
+5. **To stop streaming**: Open **Control Center -> Screen Mirroring -> Stop Mirroring**. Uncheck **Enable iPhone / iPad USB Reverse Tethering** (or close OBS) to immediately revert your device to stock Apple USB mode.
 
 ## Install Options
 
 | Path | Artifact / Command | Notes |
 | --- | --- | --- |
-| Windows Installer | [`obs-scrcpy-source-0.3.7-windows-x64-Installer.exe`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | Recommended zero-config install with optional checkboxes for Bonjour, Apple USB/NCM drivers & Firewall rules |
-| Portable ZIP | [`obs-scrcpy-source-0.3.7-windows-x64.zip`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | For portable OBS Studio setups; includes `redist\setup-prerequisites.ps1` |
+| Windows Installer | [`obs-scrcpy-source-0.3.8-windows-x64-Installer.exe`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | Recommended zero-config install with optional checkboxes for Bonjour, Apple USB/NCM drivers & Firewall rules |
+| Portable ZIP | [`obs-scrcpy-source-0.3.8-windows-x64.zip`](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest) | For portable OBS Studio setups; includes `redist\setup-prerequisites.ps1` |
 | Source development | `.\scripts\configure-build.ps1 -Build` then `.\scripts\install-global-plugin.ps1` | Automatically fetches OBS 32.1.2 & FFmpeg 8.0.1 SDK headers/libs |
 | GHCR OCI package | `ghcr.io/spectralav/mobile-game-streamer-toolkit:latest` | Lightweight OCI artifact containing compiled Windows x64 plugin & helper binaries |
 
@@ -140,8 +140,8 @@ GHCR package tags:
 
 ```text
 ghcr.io/spectralav/mobile-game-streamer-toolkit:latest
-ghcr.io/spectralav/mobile-game-streamer-toolkit:0.3.7
-ghcr.io/spectralav/mobile-game-streamer-toolkit:v0.3.7
+ghcr.io/spectralav/mobile-game-streamer-toolkit:0.3.8
+ghcr.io/spectralav/mobile-game-streamer-toolkit:v0.3.8
 ```
 
 ## Capabilities
@@ -152,21 +152,21 @@ ghcr.io/spectralav/mobile-game-streamer-toolkit:v0.3.7
 | Hardware-accelerated decode | Uses FFmpeg 8.0.1 `D3D11VA` GPU decoding (`H.264`, `HEVC`, `AV1` / `dav1d`) with live-edge latency catchup and shared device PTS audio-video sync |
 | Rotation & reconnect resilience | Handles live portrait/landscape rotation without stream crashes and automatically recovers dropped ADB/decoder sessions with exponential backoff |
 | Embedded Apple AirPlay 2 | Hosts an in-process AirPlay receiver inside OBS with Annex B SPS/PPS caching, contiguous frame memory safety, and `1080p` / `1440p` / `4K` / vertical presets |
-| iPhone USB Reverse Tethering | Switches a USB-connected iPhone to CDC-NCM USB Ethernet and shares PC internet via ICS for zero-Wi-Fi-jitter AirPlay over cable |
+| iPhone & iPad USB Reverse Tethering | Switches a USB-connected iPhone or iPad to CDC-NCM USB Ethernet and shares PC internet via ICS for zero-Wi-Fi-jitter AirPlay over cable |
 | Scalable disconnected placeholder | Displays a clean, aspect-aware status frame while waiting for a phone connection or reconnect |
 | MLBB Co-Pilot CV bridge | Publishes throttled raw BGRA frames on a non-blocking worker thread to `127.0.0.1:8787` so MLBB Co-Pilot analyzes the exact OBS feed without a second capture session |
 
 ## iPhone USB Reverse Tethering
 
-To stream AirPlay over a direct USB cable without Wi-Fi congestion, check **Enable iPhone USB Reverse Tethering** inside **Apple AirPlay Source** properties.
+To stream AirPlay from an **iPhone or iPad** over a direct USB cable without Wi-Fi congestion, check **Enable iPhone / iPad USB Reverse Tethering** inside **Apple AirPlay Source** properties.
 
-The plugin enforces a strict **session-only driver lifecycle** so your iPhone always behaves like a normal Apple device whenever OBS tethering is not in use:
+The plugin enforces a strict **session-only driver lifecycle** so your iPhone or iPad always behaves like a normal Apple device whenever OBS tethering is not in use:
 
 - **When OBS is closed or USB Reverse Tethering is unchecked**:
   - `libusb0.sys` remains completely dormant (`SERVICE_DEMAND_START`) and is **not** attached to any Apple USB device.
-  - Your iPhone runs **100% unmodified stock Apple drivers** (`usbccgp` + `AppleLowerFilter`, `OriginalConfigurationValue = 2`), keeping **Windows Photos**, **File Explorer**, **iTunes**, **Apple Devices**, and backups/sync working exactly as Apple intended.
+  - Your iPhone / iPad runs **100% unmodified stock Apple drivers** (`usbccgp` + `AppleLowerFilter`, `OriginalConfigurationValue = 2`), keeping **Windows Photos**, **File Explorer**, **iTunes**, **Apple Devices**, and backups/sync working exactly as Apple intended.
 - **Only while USB Reverse Tethering is actively enabled in OBS**:
-  - `obs-airplay-tether-helper.exe` temporarily attaches `libusb0` to the composite parent node, sends vendor `SET_MODE` to activate Apple CDC-NCM USB Ethernet, suppresses photo popups during your stream, and enables Windows ICS (`192.168.137.1`).
+  - `obs-airplay-tether-helper.exe` temporarily attaches `libusb0` to the currently connected composite parent node, sends vendor `SET_MODE` to activate Apple CDC-NCM USB Ethernet, suppresses photo popups during your stream, and enables Windows ICS (`192.168.137.1`).
 - **Immediately when unchecked, source is removed, OBS closes, or OBS crashes**:
   - Disables ICS, sends `SET_MODE 2`, strips `libusb0` from `UpperFilters`, restores stock Apple `Device Parameters` and `AppleLowerFilter`, re-enables the Photo/PTP interface, restarts the USB node so pure Apple drivers reload immediately, and exits the helper process.
 
@@ -211,7 +211,7 @@ The plugin enforces a strict **session-only driver lifecycle** so your iPhone al
 
 | Milestone | Goal |
 | --- | --- |
-| `0.3.x` | Native `scrcpy 4.1` + AirPlay 2 sources, zero-config Windows installer with Bonjour & Apple WHQL drivers, and session-only iPhone USB Reverse Tethering (**Current: `v0.3.7`**) |
+| `0.3.x` | Native `scrcpy 4.1` + AirPlay 2 sources, zero-config Windows installer with Bonjour & Apple WHQL drivers, and session-only iPhone & iPad USB Reverse Tethering (**Current: `v0.3.8`**) |
 | `0.4.x` | Multi-device iPhone USB selector, explicit AirPlay network adapter binding, and richer in-OBS diagnostics |
 | `0.5.x` | Zero-copy `D3D11` GPU shared texture output into OBS graphics (`gs_texture_t`) for minimal 4K60 overhead |
 | `0.8.x` | Authenticode-signed plugin/helper/installer binaries and automated loopback integration tests |

@@ -150,7 +150,7 @@ bool tether_restart_clicked(obs_properties_t *props, obs_property_t *, void *dat
     if (p_status) {
       obs_property_set_description(
           p_status,
-          "USB Status: Disconnected (Enable 'iPhone USB Reverse Tethering' checkbox first)");
+          "USB Status: Disconnected (Enable 'iPhone / iPad USB Reverse Tethering' checkbox first)");
     }
     return true;
   }
@@ -161,7 +161,7 @@ bool tether_restart_clicked(obs_properties_t *props, obs_property_t *, void *dat
   IPhoneTetherClient::Instance().StartTethering(err);
   const IPhoneTetherStatus st = IPhoneTetherClient::Instance().GetStatus();
   if (p_status) {
-    std::string status_line = st.state_text.empty() ? "Re-detecting iPhone..." : st.state_text;
+    std::string status_line = st.state_text.empty() ? "Re-detecting iPhone / iPad..." : st.state_text;
     obs_property_set_description(p_status, ("USB Status: " + status_line).c_str());
   }
   return true;
@@ -308,7 +308,7 @@ obs_properties_t *airplay_source_get_properties(void *data)
                              "Refresh USB Status",
                              tether_refresh_clicked, data);
   obs_properties_add_button2(props, "airplay_usb_tether_restart",
-                             "Re-detect / Troubleshoot iPhone",
+                             "Re-detect / Troubleshoot iPhone / iPad",
                              tether_restart_clicked, data);
 
   obs_properties_add_text(props, "airplay_receiver_name",

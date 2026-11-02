@@ -5,7 +5,7 @@ This guide covers installing `obs-scrcpy-source` on Windows 10/11 (64-bit) with 
 ## 1. Standalone Windows Installer (Recommended)
 
 1. Close **OBS Studio** (`obs64.exe`) and any standalone `scrcpy.exe` windows.
-2. Download `obs-scrcpy-source-0.3.7-windows-x64-Installer.exe` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+2. Download `obs-scrcpy-source-0.3.8-windows-x64-Installer.exe` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 3. Run the installer as Administrator:
    - The wizard automatically locates your OBS Studio installation directory (e.g., `C:\Program Files\obs-studio`).
    - Keep **Full Out-of-the-Box Installation** selected to install:
@@ -19,10 +19,10 @@ This guide covers installing `obs-scrcpy-source` on Windows 10/11 (64-bit) with 
 
 ## 2. Portable ZIP Installation
 
-1. Download `obs-scrcpy-source-0.3.7-windows-x64.zip` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
+1. Download `obs-scrcpy-source-0.3.8-windows-x64.zip` from [GitHub Releases](https://github.com/spectralAV/mobile-game-streamer-toolkit/releases/latest).
 2. Extract `obs-plugins\` and `data\` into your portable OBS Studio root folder.
 3. Extract `scrcpy-4.1\` to `C:\Program Files\scrcpy\4.1` (or point the source's **scrcpy executable** path to your extracted `scrcpy.exe`).
-4. Optional (for AirPlay & iPhone USB Reverse Tethering on a fresh PC): run `redist\setup-prerequisites.ps1` from an elevated PowerShell prompt to install Bonjour, Apple USB/NCM drivers, and firewall rules.
+4. Optional (for AirPlay & iPhone / iPad USB Reverse Tethering on a fresh PC): run `redist\setup-prerequisites.ps1` from an elevated PowerShell prompt to install Bonjour, Apple USB/NCM drivers, and firewall rules.
 
 ## 3. Building & Installing From Source
 
@@ -81,15 +81,15 @@ Unlike capture cards or Android `scrcpy`, Apple devices **never** start streamin
    - **Mac (macOS)**: Click the **Control Center** icon (two pill toggles) in the top-right menu bar.
 4. Tap the **Screen Mirroring** button *(icon with two overlapping rectangles)* and select **`OBS AirPlay`**. Gameplay video and audio will stream directly into OBS.
 
-#### Option B — Zero-Lag USB Cable (iPhone USB Reverse Tethering)
+#### Option B — Zero-Lag USB Cable (iPhone / iPad USB Reverse Tethering)
 
-1. Plug your iPhone into your PC with a Lightning or USB-C data cable, **unlock the iPhone**, and tap **Trust** (plus enter your iPhone passcode) if **"Trust This Computer?"** appears.
+1. Plug your iPhone or iPad into your PC with a Lightning or USB-C data cable, **unlock the screen**, and tap **Trust** (plus enter your passcode) if **"Trust This Computer?"** appears.
 2. In OBS Studio, open **Apple AirPlay Source** properties and check **both**:
    - **Enable AirPlay receiver**
-   - **Enable iPhone USB Reverse Tethering (Zero-Lag / Direct Cable)**
-3. Wait 3–5 seconds (click **Refresh USB Status** to confirm status is **`Active`** — your iPhone now uses a private direct USB Ethernet link to your PC).
-4. **Start Screen Mirroring on your iPhone**: Even over USB cable, **swipe down from the top-right corner** of your iPhone to open **Control Center (quick settings bar)** -> tap **Screen Mirroring** (two overlapping rectangles) -> select **`OBS AirPlay`**.
-5. **When finished**: Open **Control Center -> Screen Mirroring -> Stop Mirroring**. Whenever you uncheck **Enable iPhone USB Reverse Tethering** or close OBS Studio, your iPhone automatically reverts to **100% stock Apple USB drivers** (Windows Photos, File Explorer, iTunes, and Apple Devices work normally).
+   - **Enable iPhone / iPad USB Reverse Tethering (Zero-Lag / Direct Cable)**
+3. Wait 3–5 seconds (click **Refresh USB Status** to confirm status is **`Active`** — your iPhone or iPad now uses a private direct USB Ethernet link to your PC).
+4. **Start Screen Mirroring on your iPhone / iPad**: Even over USB cable, **swipe down from the top-right corner** of your iPhone or iPad *(or swipe up from the bottom edge on Home-button models)* to open **Control Center (quick settings bar)** -> tap **Screen Mirroring** (two overlapping rectangles) -> select **`OBS AirPlay`**.
+5. **When finished**: Open **Control Center -> Screen Mirroring -> Stop Mirroring**. Whenever you uncheck **Enable iPhone / iPad USB Reverse Tethering** or close OBS Studio, your device automatically reverts to **100% stock Apple USB drivers** (Windows Photos, File Explorer, iTunes, and Apple Devices work normally).
 
 ---
 
@@ -100,7 +100,7 @@ Unlike capture cards or Android `scrcpy`, Apple devices **never** start streamin
 | Android phone does not appear when clicking **Refresh devices** | **USB debugging** is off, phone is using a **charge-only USB cable**, or **"Allow USB debugging?"** was not accepted | Unlock **Developer options -> USB debugging**, swap to a known USB data cable, unlock the phone screen, switch USB mode to **File Transfer**, and tap **Allow** on the prompt |
 | **USB debugging** toggle is grayed out on Samsung Galaxy | Samsung **Auto Blocker** (enabled by default on One UI 6+) blocks ADB | Go to `Settings -> Security and privacy -> Auto Blocker` and turn it **OFF** |
 | Android phone appears once, then stays stuck on `"Device disconnected"` | RSA authorization prompt expired or was dismissed without tapping **Allow** | In Android **Developer options**, tap **Revoke USB debugging authorizations**, unplug and reconnect USB, check **Always allow from this computer**, and tap **Allow** |
-| **`OBS AirPlay`** does not show up in iPhone/iPad **Screen Mirroring** | **Enable AirPlay receiver** is unchecked in OBS, devices are on different Wi-Fi networks / Guest Wi-Fi isolation, or Bonjour is stopped | Check **Enable AirPlay receiver** in OBS properties, verify PC & iPhone share the same private LAN / 5 GHz Wi-Fi (or enable **USB Reverse Tethering**), and ensure `Bonjour Service` is running |
-| Enabled **iPhone USB Reverse Tethering** (`Active`), but OBS still shows placeholder | USB Reverse Tethering creates the cable network tunnel, but iOS still waits for you to start mirroring | Unlock iPhone -> **swipe down from top-right corner** (**Control Center**) -> tap **Screen Mirroring** -> select **`OBS AirPlay`** |
+| **`OBS AirPlay`** does not show up in iPhone/iPad **Screen Mirroring** | **Enable AirPlay receiver** is unchecked in OBS, devices are on different Wi-Fi networks / Guest Wi-Fi isolation, or Bonjour is stopped | Check **Enable AirPlay receiver** in OBS properties, verify PC & iPhone/iPad share the same private LAN / 5 GHz Wi-Fi (or enable **USB Reverse Tethering**), and ensure `Bonjour Service` is running |
+| Enabled **iPhone / iPad USB Reverse Tethering** (`Active`), but OBS still shows placeholder | USB Reverse Tethering creates the cable network tunnel, but iOS / iPadOS still waits for you to start mirroring | Unlock iPhone/iPad -> **swipe down from top-right corner** (**Control Center**) -> tap **Screen Mirroring** -> select **`OBS AirPlay`** |
 
 

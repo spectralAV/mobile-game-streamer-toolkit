@@ -7,7 +7,7 @@ Thank you for installing the OBS scrcpy Source Plugin!
 All necessary runtime files and system drivers have been installed out of the box:
   - OBS scrcpy source plugin with hardware-accelerated FFmpeg decoding (D3D11VA)
   - scrcpy 4.1 runtime & ADB tools (installed to C:\Program Files\scrcpy\4.1)
-  - Apple AirPlay 2 receiver runtime & iPhone USB Reverse Tethering helper
+  - Apple AirPlay 2 receiver runtime & iPhone / iPad USB Reverse Tethering helper
   - Apple Bonjour Service (mDNS discovery for AirPlay)
   - Apple Mobile Device Support + WHQL Apple USB/NCM & signed libusb0 drivers
   - Windows Defender Firewall inbound rules for OBS AirPlay & mDNS
@@ -39,9 +39,10 @@ All necessary runtime files and system drivers have been installed out of the bo
    - Check "Enable AirPlay receiver" (default name: "OBS AirPlay") and click OK.
    - Option A (Wireless 5 GHz Wi-Fi / LAN): connect your Apple device and PC to
      the same network (avoid Guest Wi-Fi).
-   - Option B (Zero-Lag USB Cable): plug in your iPhone via USB cable, unlock
-     the screen, tap "Trust" if prompted, and check "Enable iPhone USB Reverse
-     Tethering" in the AirPlay source properties until USB Status is Active.
+   - Option B (Zero-Lag USB Cable): plug in your iPhone or iPad via USB cable,
+     unlock the screen, tap "Trust" if prompted, and check "Enable iPhone / iPad
+     USB Reverse Tethering" in the AirPlay source properties until USB Status is
+     Active.
    - Start Screen Mirroring on your Apple device:
      * iPhone (Face ID) & iPad: swipe DOWN from the top-right corner of the
        screen to open Control Center (quick settings bar).
@@ -49,7 +50,7 @@ All necessary runtime files and system drivers have been installed out of the bo
      * Mac: click Control Center (two pill toggles) in the top-right menu bar.
      Tap the "Screen Mirroring" icon (two overlapping rectangles) and select
      "OBS AirPlay" (needed for both Wi-Fi and USB Reverse Tethering modes!).
-   - When USB Reverse Tethering is unchecked or OBS is closed, your iPhone
+   - When USB Reverse Tethering is unchecked or OBS is closed, your iPhone/iPad
      automatically uses 100% unmodified Apple USB drivers (Photos, File
      Explorer, iTunes, and Apple Devices work normally).
 

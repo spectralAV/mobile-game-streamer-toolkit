@@ -74,8 +74,9 @@ private:
   bool RestartDeviceNode(const std::wstring &phone_id);
   bool EnsureLibusbFilterAttached(const std::wstring &phone_id);
   bool DetachAllLibusbFilters();
+  void EnablePresentAppleNcmChildren(uint16_t target_pid);
   bool PerformModeSwitch(int target_mode, const std::wstring &phone_id, std::string &error_msg);
-  bool FindNcmAdapter(std::wstring &adapter_name, std::wstring &adapter_desc, uint32_t &if_index, bool &is_up);
+  bool FindNcmAdapter(std::wstring &adapter_name, std::wstring &adapter_desc, uint32_t &if_index, bool &is_up, uint16_t expected_pid = 0);
   bool FindActiveUplink(std::wstring &uplink_name, uint32_t &uplink_if_index);
   bool ConfigureIcs(const std::wstring &uplink_name, const std::wstring &ncm_name, std::string &error_msg);
   bool DisableAllIcs(std::string &error_msg);

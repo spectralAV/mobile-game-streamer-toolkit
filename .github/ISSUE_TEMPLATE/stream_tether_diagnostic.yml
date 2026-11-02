@@ -1,5 +1,5 @@
 name: Device stream or USB tethering diagnostic
-description: Report Android ADB/scrcpy, Apple AirPlay discovery, or iPhone USB Reverse Tethering issues.
+description: Report Android ADB/scrcpy, Apple AirPlay discovery, or iPhone / iPad USB Reverse Tethering issues.
 title: "[Stream/Tether]: "
 labels:
   - bug
@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Plugin version or commit
-      placeholder: v0.3.7
+      placeholder: v0.3.8
     validations:
       required: true
   - type: dropdown
@@ -23,7 +23,7 @@ body:
         - Android scrcpy (USB)
         - Android scrcpy (TCP/IP Wi-Fi)
         - Apple AirPlay (Wi-Fi / LAN)
-        - Apple AirPlay + iPhone USB Reverse Tethering (USB cable)
+        - Apple AirPlay + iPhone / iPad USB Reverse Tethering (USB cable)
         - Other
     validations:
       required: true

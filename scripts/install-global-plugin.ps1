@@ -88,7 +88,8 @@ if (Test-Path -LiteralPath $helperSource) {
     try {
         $action = New-ScheduledTaskAction -Execute $helperTarget -Argument "--run"
         $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Highest
-        $task = New-ScheduledTask -Action $action -Principal $principal
+        $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+        $task = New-ScheduledTask -Action $action -Principal $principal -Settings $settings
         Register-ScheduledTask -TaskName "OBS-AirPlay-Tether-Helper" -InputObject $task -Force | Out-Null
         Write-Host "Registered elevated helper task: OBS-AirPlay-Tether-Helper"
     } catch {
