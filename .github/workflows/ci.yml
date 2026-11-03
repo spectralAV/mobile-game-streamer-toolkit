@@ -35,7 +35,7 @@ jobs:
           Write-Host "Validated $($scripts.Count) PowerShell scripts with 0 syntax errors."
 
       - name: Cache OBS & FFmpeg SDK downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             vendor/obs-studio-32.1.2.zip
