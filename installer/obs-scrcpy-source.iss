@@ -2,7 +2,7 @@
 ; High-performance native Android scrcpy & Apple AirPlay input sources for OBS Studio
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.8"
+  #define MyAppVersion "0.3.9"
 #endif
 
 #ifndef MyAppName

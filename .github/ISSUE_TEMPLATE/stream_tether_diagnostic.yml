@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Plugin version or commit
-      placeholder: v0.3.8
+      placeholder: v0.3.9
     validations:
       required: true
   - type: dropdown

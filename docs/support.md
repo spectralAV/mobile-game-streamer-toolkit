@@ -4,7 +4,7 @@ When opening a [GitHub Issue](https://github.com/spectralAV/mobile-game-streamer
 
 ## What To Include
 
-1. **Plugin version** (e.g., `v0.3.8` installer, portable ZIP, or git commit SHA).
+1. **Plugin version** (e.g., `v0.3.9` installer, portable ZIP, or git commit SHA).
 2. **Windows & OBS Studio version** (e.g., Windows 11 24H2, OBS Studio 32.1.2 x64).
 3. **GPU model** (NVIDIA, AMD, or Intel — relevant for `D3D11VA` hardware decoding).
 4. **Mobile device & OS version** (e.g., Pixel 10 Pro Android 16, iPhone 15 Pro iOS 18.4, iPad 7th Gen iPadOS 18.7).

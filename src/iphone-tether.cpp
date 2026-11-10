@@ -534,23 +534,114 @@ bool IPhoneTetherManager::RestartDeviceNode(const std::wstring &phone_id)
     return false;
   }
 
-  LogTether("RestartDeviceNode: restarting " + WideToUtf8(phone_id));
-  std::wstring cmd = L"pnputil.exe /restart-device \"" + phone_id + L"\"";
-  RunHiddenCommand(cmd);
-
-  DEVNODE dn;
-  for (int i = 0; i < 20; ++i) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)phone_id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
-      ULONG status = 0, problem = 0;
-      if (CM_Get_DevNode_Status(&status, &problem, dn, 0) == CR_SUCCESS && !(status & DN_HAS_PROBLEM)) {
-        LogTether("RestartDeviceNode: device node settled OK.");
-        return true;
+  // Temporarily stop Apple Mobile Device Service before restarting the composite parent devnode.
+  // Otherwise AppleMobileDeviceService.exe holds an open handle to child MI_01 (AppleUsbMux) and
+  // causes Windows Kernel-PnP (Event ID 225) to veto the devnode restart with DN_NEED_RESTART,
+  // preventing libusb0.sys from loading into (or unloading from) the composite device stack.
+  SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+  SC_HANDLE amdsSvc = nullptr;
+  bool amdsExisted = false;
+  if (scm) {
+    amdsSvc = OpenServiceW(scm, L"Apple Mobile Device Service", SERVICE_STOP | SERVICE_START | SERVICE_QUERY_STATUS);
+    if (amdsSvc) {
+      amdsExisted = true;
+      SERVICE_STATUS_PROCESS ssp = {};
+      DWORD bytesNeeded = 0;
+      if (QueryServiceStatusEx(amdsSvc, SC_STATUS_PROCESS_INFO, (LPBYTE)&ssp, sizeof(ssp), &bytesNeeded) &&
+          ssp.dwCurrentState != SERVICE_STOPPED) {
+        LogTether("RestartDeviceNode: temporarily stopping Apple Mobile Device Service to release MI_01 handle...");
+        SERVICE_STATUS stopStatus = {};
+        ControlService(amdsSvc, SERVICE_CONTROL_STOP, &stopStatus);
+        for (int waitIdx = 0; waitIdx < 35; ++waitIdx) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+          if (QueryServiceStatusEx(amdsSvc, SC_STATUS_PROCESS_INFO, (LPBYTE)&ssp, sizeof(ssp), &bytesNeeded) &&
+              ssp.dwCurrentState == SERVICE_STOPPED) {
+            break;
+          }
+        }
+        if (ssp.dwCurrentState != SERVICE_STOPPED) {
+          RunHiddenCommand(L"taskkill.exe /F /IM AppleMobileDeviceService.exe");
+          std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        }
       }
     }
   }
 
-  return true;
+  auto restoreAmds = [&]() {
+    if (amdsSvc) {
+      if (amdsExisted) {
+        SERVICE_STATUS_PROCESS ssp = {};
+        DWORD bytesNeeded = 0;
+        if (QueryServiceStatusEx(amdsSvc, SC_STATUS_PROCESS_INFO, (LPBYTE)&ssp, sizeof(ssp), &bytesNeeded) &&
+            ssp.dwCurrentState != SERVICE_RUNNING && ssp.dwCurrentState != SERVICE_START_PENDING) {
+          StartServiceW(amdsSvc, 0, nullptr);
+          for (int waitIdx = 0; waitIdx < 20; ++waitIdx) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (QueryServiceStatusEx(amdsSvc, SC_STATUS_PROCESS_INFO, (LPBYTE)&ssp, sizeof(ssp), &bytesNeeded) &&
+                ssp.dwCurrentState == SERVICE_RUNNING) {
+              break;
+            }
+          }
+        }
+      }
+      CloseServiceHandle(amdsSvc);
+      amdsSvc = nullptr;
+    }
+    if (scm) {
+      CloseServiceHandle(scm);
+      scm = nullptr;
+    }
+  };
+
+  LogTether("RestartDeviceNode: restarting " + WideToUtf8(phone_id));
+  std::wstring cmd = L"pnputil.exe /restart-device \"" + phone_id + L"\"";
+  RunHiddenCommand(cmd);
+
+  DEVNODE dn = 0;
+  bool settled = false;
+  ULONG lastStatus = 0, lastProblem = 0;
+  for (int i = 0; i < 10; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)phone_id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+      if (CM_Get_DevNode_Status(&lastStatus, &lastProblem, dn, 0) == CR_SUCCESS) {
+        if ((lastStatus & DN_STARTED) && !(lastStatus & DN_HAS_PROBLEM) && !(lastStatus & DN_NEED_RESTART)) {
+          LogTether("RestartDeviceNode: device node settled OK (status=0x" +
+                    ([&]() { std::ostringstream hs; hs << std::hex << lastStatus; return hs.str(); })() + ").");
+          settled = true;
+          break;
+        }
+        if (i >= 3 && ((lastStatus & DN_NEED_RESTART) || (lastStatus & DN_HAS_PROBLEM))) {
+          break;
+        }
+      }
+    }
+  }
+
+  if (!settled) {
+    LogTether("RestartDeviceNode: pnputil /restart-device left status=0x" +
+              ([&]() { std::ostringstream hs; hs << std::hex << lastStatus; return hs.str(); })() +
+              " problem=" + std::to_string(lastProblem) + "; performing explicit disable/enable cycle...");
+    std::wstring disCmd = L"pnputil.exe /disable-device \"" + phone_id + L"\"";
+    RunHiddenCommand(disCmd);
+    std::this_thread::sleep_for(std::chrono::milliseconds(600));
+    std::wstring enCmd = L"pnputil.exe /enable-device \"" + phone_id + L"\"";
+    RunHiddenCommand(enCmd);
+
+    for (int i = 0; i < 16; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      if (CM_Locate_DevNodeW(&dn, (DEVINSTID_W)phone_id.c_str(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS) {
+        if (CM_Get_DevNode_Status(&lastStatus, &lastProblem, dn, 0) == CR_SUCCESS &&
+            (lastStatus & DN_STARTED) && !(lastStatus & DN_HAS_PROBLEM) && !(lastStatus & DN_NEED_RESTART)) {
+          LogTether("RestartDeviceNode: device node settled OK after disable/enable cycle.");
+          settled = true;
+          break;
+        }
+      }
+    }
+  }
+
+  restoreAmds();
+  return settled;
 }
 
 bool IPhoneTetherManager::EnsureLibusbFilterAttached(const std::wstring &phone_id)
@@ -558,6 +649,9 @@ bool IPhoneTetherManager::EnsureLibusbFilterAttached(const std::wstring &phone_i
   if (phone_id.empty()) {
     return false;
   }
+
+  // Disable MI_00 Photo/PTP child first so WPD/Explorer neither blocks composite restart nor pops up Photos dialogs
+  DisablePhotoInterface();
 
   // Locate helper directory where signed libusb0.sys lives
   std::wstring modDir;
@@ -587,7 +681,7 @@ bool IPhoneTetherManager::EnsureLibusbFilterAttached(const std::wstring &phone_i
 
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
     if (scm) {
-      SC_HANDLE svc = OpenServiceW(scm, L"libusb0", SERVICE_QUERY_STATUS);
+      SC_HANDLE svc = OpenServiceW(scm, L"libusb0", SERVICE_QUERY_STATUS | SERVICE_START);
       if (!svc && GetFileAttributesW(targetSys.c_str()) != INVALID_FILE_ATTRIBUTES) {
         svc = CreateServiceW(
             scm,
@@ -610,7 +704,15 @@ bool IPhoneTetherManager::EnsureLibusbFilterAttached(const std::wstring &phone_i
     }
   }
 
-  // 2. Attach libusb0 ONLY to UpperFilters on the composite parent node (Enum\<phone_id>).
+  // 2. Ensure SurpriseRemovalOK is absent from Device Parameters so libusb0.sys attaches in filter mode (is_filter=1)
+  std::wstring paramsKeyPath = L"SYSTEM\\CurrentControlSet\\Enum\\" + phone_id + L"\\Device Parameters";
+  HKEY hParams = nullptr;
+  if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, paramsKeyPath.c_str(), 0, KEY_SET_VALUE, &hParams) == ERROR_SUCCESS) {
+    RegDeleteValueW(hParams, L"SurpriseRemovalOK");
+    RegCloseKey(hParams);
+  }
+
+  // 3. Attach libusb0 ONLY to UpperFilters on the composite parent node (Enum\<phone_id>).
   //    NEVER run install-filter.exe, because install-filter.exe also attaches libusb0 to child
   //    interfaces (MI_00 Photos and MI_01 AppleUsbMux) and leaves them permanently modified.
   std::wstring enumKeyPath = L"SYSTEM\\CurrentControlSet\\Enum\\" + phone_id;
@@ -647,40 +749,74 @@ bool IPhoneTetherManager::EnsureLibusbFilterAttached(const std::wstring &phone_i
   };
 
   std::vector<std::wstring> existingFilters;
-  if (hasLibusbUpperFilter(&existingFilters)) {
-    filter_attached_ = true;
-    return true;
-  }
-
-  HKEY hKey = nullptr;
-  if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, enumKeyPath.c_str(), 0, KEY_SET_VALUE | KEY_READ, &hKey) == ERROR_SUCCESS) {
-    existingFilters.push_back(L"libusb0");
-    std::vector<wchar_t> multiSz;
-    for (const auto &item : existingFilters) {
-      multiSz.insert(multiSz.end(), item.begin(), item.end());
+  const bool alreadyInReg = hasLibusbUpperFilter(&existingFilters);
+  if (!alreadyInReg) {
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, enumKeyPath.c_str(), 0, KEY_SET_VALUE | KEY_READ, &hKey) == ERROR_SUCCESS) {
+      existingFilters.push_back(L"libusb0");
+      std::vector<wchar_t> multiSz;
+      for (const auto &item : existingFilters) {
+        multiSz.insert(multiSz.end(), item.begin(), item.end());
+        multiSz.push_back(L'\0');
+      }
       multiSz.push_back(L'\0');
+      if (RegSetValueExW(
+              hKey,
+              L"UpperFilters",
+              0,
+              REG_MULTI_SZ,
+              (const BYTE *)multiSz.data(),
+              (DWORD)(multiSz.size() * sizeof(wchar_t))) == ERROR_SUCCESS) {
+        filter_attached_ = true;
+      }
+      RegCloseKey(hKey);
     }
-    multiSz.push_back(L'\0');
-    if (RegSetValueExW(
-            hKey,
-            L"UpperFilters",
-            0,
-            REG_MULTI_SZ,
-            (const BYTE *)multiSz.data(),
-            (DWORD)(multiSz.size() * sizeof(wchar_t))) == ERROR_SUCCESS) {
-      filter_attached_ = true;
-      RegCloseKey(hKey);
-      LogTether("Session-only UpperFilters=libusb0 attached to composite parent " + WideToUtf8(phone_id) + "; restarting devnode...");
-      RestartDeviceNode(phone_id);
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    } else {
-      RegCloseKey(hKey);
+  } else {
+    filter_attached_ = true;
+  }
+
+  // Because EnsureLibusbFilterAttached is called when findAppleUsbDev() returned nullptr,
+  // always restart the composite devnode so Windows PnP loads libusb0.sys into the live device stack.
+  LogTether(std::string(alreadyInReg ? "UpperFilters=libusb0 already in registry for "
+                                     : "Session-only UpperFilters=libusb0 attached to composite parent ") +
+            WideToUtf8(phone_id) + "; restarting devnode to activate libusb0 filter...");
+  RestartDeviceNode(phone_id);
+
+  // Ensure libusb0 kernel service is started and poll briefly for libusb0 bus enumeration
+  SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+  if (scm) {
+    SC_HANDLE svc = OpenServiceW(scm, L"libusb0", SERVICE_START | SERVICE_QUERY_STATUS);
+    if (svc) {
+      StartServiceW(svc, 0, nullptr);
+      CloseServiceHandle(svc);
+    }
+    CloseServiceHandle(scm);
+  }
+
+  for (int i = 0; i < 6; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    if (fn_usb_init) {
+      fn_usb_init();
+    }
+    if (fn_usb_find_busses && fn_usb_find_devices && fn_usb_get_busses) {
+      fn_usb_find_busses();
+      fn_usb_find_devices();
+      struct usb_bus *busses = fn_usb_get_busses();
+      bool seen = false;
+      for (struct usb_bus *bus = busses; bus && !seen; bus = bus->next) {
+        for (struct usb_device *dev = bus->devices; dev; dev = dev->next) {
+          if (dev->descriptor.idVendor == 0x05AC && IsAppleMobileDevicePid(dev->descriptor.idProduct)) {
+            seen = true;
+            break;
+          }
+        }
+      }
+      if (seen) {
+        break;
+      }
     }
   }
 
-  if (fn_usb_init) {
-    fn_usb_init();
-  }
   return hasLibusbUpperFilter(nullptr);
 }
 
@@ -812,6 +948,16 @@ bool IPhoneTetherManager::DetachAllLibusbFilters()
             any_modified = true;
             LogTether("Restored stock AppleLowerFilter on " + WideToUtf8(s + L"\\" + instName));
           }
+        }
+      }
+
+      // 3. Clear any leftover CONFIGFLAG_REINSTALL (0x20) on composite parent or MI_00/MI_01 children
+      if (is_composite_parent || CaseInsensitiveContains(s, L"MI_00") || CaseInsensitiveContains(s, L"MI_01")) {
+        DWORD cfgFlags = 0, cfgType = 0, cfgSize = sizeof(DWORD);
+        if (RegQueryValueExW(hInst, L"ConfigFlags", nullptr, &cfgType, (LPBYTE)&cfgFlags, &cfgSize) == ERROR_SUCCESS &&
+            cfgType == REG_DWORD && (cfgFlags & 0x20)) {
+          cfgFlags &= ~0x20u;
+          RegSetValueExW(hInst, L"ConfigFlags", 0, REG_DWORD, (const BYTE *)&cfgFlags, sizeof(DWORD));
         }
       }
 
@@ -1615,6 +1761,11 @@ void IPhoneTetherManager::MonitorLoop()
           has_ncm = true;
           break;
         }
+        if (i == 7 && monitor_running_) {
+          LogTether("Apple NCM adapter not yet enumerated after 4s; restarting composite devnode to select config 4...");
+          RestartDeviceNode(phone_id);
+          EnablePresentAppleNcmChildren(active_pid);
+        }
       }
 
       // If NCM adapter still not active, dynamically enable any disabled child NCM functions for this PID
@@ -1825,6 +1976,20 @@ bool IPhoneTetherManager::StopShare(bool full_revert, std::string &error_msg)
       EnablePhotoInterface();
     }
     EnsureDeviceHealthy(active_phone_id);
+  }
+
+  // 7. Stop dormant libusb0 kernel service now that all UpperFilters are detached
+  {
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (scm) {
+      SC_HANDLE svc = OpenServiceW(scm, L"libusb0", SERVICE_STOP | SERVICE_QUERY_STATUS);
+      if (svc) {
+        SERVICE_STATUS stopSt = {};
+        ControlService(svc, SERVICE_CONTROL_STOP, &stopSt);
+        CloseServiceHandle(svc);
+      }
+      CloseServiceHandle(scm);
+    }
   }
 
   {

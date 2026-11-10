@@ -135,10 +135,10 @@ switch ($Action) {
             try {
                 $loggedOnUser = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
                 if (-not $loggedOnUser) { $loggedOnUser = $env:USERNAME }
-                $action = New-ScheduledTaskAction -Execute $helperExe -Argument "--run"
-                $principal = New-ScheduledTaskPrincipal -UserId $loggedOnUser -LogonType Interactive -RunLevel Highest
-                $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
-                $task = New-ScheduledTask -Action $action -Principal $principal -Settings $settings
+                $taskAction = New-ScheduledTaskAction -Execute $helperExe -Argument "--run"
+                $taskPrincipal = New-ScheduledTaskPrincipal -UserId $loggedOnUser -LogonType Interactive -RunLevel Highest
+                $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+                $task = New-ScheduledTask -Action $taskAction -Principal $taskPrincipal -Settings $taskSettings
                 Register-ScheduledTask -TaskName "OBS-AirPlay-Tether-Helper" -InputObject $task -Force | Out-Null
                 Write-PrereqLog "Registered on-demand helper task OBS-AirPlay-Tether-Helper for $loggedOnUser."
             } catch {
